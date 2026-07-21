@@ -1,0 +1,339 @@
+diff -Naur a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt	2026-07-22 01:22:12.422330160 +0200
++++ b/CMakeLists.txt	2026-07-22 01:23:11.175728068 +0200
+@@ -758,16 +758,26 @@
+ endif()
+ 
+ # Prioritized Text Linker Optimization
++# GNU ld: inject hot .text.<sym> into a generated default linker script (-T).
++# LLD:    --symbol-ordering-file with the same symbol list.
++# mold:   --section-ordering-file with .text.<sym> section names.
+ if(USE_PRIORITIZED_TEXT_FOR_LD)
+ 
+   set(LINKER_SCRIPT_FILE_IN "${CMAKE_SOURCE_DIR}/cmake/prioritized_text.txt")
+   set(LINKER_SCRIPT_FILE_OUT "${CMAKE_SOURCE_DIR}/cmake/linker_script.ld")
+ 
++  # Prefer the CMake-detected linker when present so --fuse-ld=* matches.
++  set(_prio_text_ld_args "")
++  if(CMAKE_LINKER)
++    list(APPEND _prio_text_ld_args --ld "${CMAKE_LINKER}")
++  endif()
++
+   execute_process(
+     COMMAND ${Python_EXECUTABLE}
+             ${CMAKE_SOURCE_DIR}/tools/setup_helpers/generate_linker_script.py
+             --filein "${LINKER_SCRIPT_FILE_IN}"
+             --fout  "${LINKER_SCRIPT_FILE_OUT}"
++            ${_prio_text_ld_args}
+     RESULT_VARIABLE _gen_result
+     OUTPUT_VARIABLE _gen_output
+     ERROR_VARIABLE  _gen_error
+@@ -775,16 +785,33 @@
+ 
+   if(NOT _gen_result EQUAL 0)
+     message(FATAL_ERROR
+-      "Failed to generate linker script:\n${_gen_output}\n${_gen_error}")
++      "Failed to generate prioritized-text linker layout:\n${_gen_output}\n${_gen_error}")
++  endif()
++
++  # Script prints one line: PRIORITIZED_TEXT_LINKER_FLAG=<flag>
++  set(_prio_text_link_flag "")
++  string(REPLACE "\n" ";" _gen_output_lines "${_gen_output}")
++  foreach(_gen_line IN LISTS _gen_output_lines)
++    if(_gen_line MATCHES "^PRIORITIZED_TEXT_LINKER_FLAG=(.*)$")
++      set(_prio_text_link_flag "${CMAKE_MATCH_1}")
++    endif()
++  endforeach()
++  if(_prio_text_link_flag STREQUAL "")
++    message(FATAL_ERROR
++      "generate_linker_script.py did not report PRIORITIZED_TEXT_LINKER_FLAG:\n${_gen_output}\n${_gen_error}")
++  endif()
++  if(_gen_error)
++    message(STATUS "${_gen_error}")
+   endif()
++  message(STATUS "Prioritized text linker flag: ${_prio_text_link_flag}")
+ 
+   append_cxx_flag_if_supported("-ffunction-sections" CMAKE_CXX_FLAGS)
+   append_cxx_flag_if_supported("-fdata-sections" CMAKE_CXX_FLAGS)
+   append_c_flag_if_supported("-ffunction-sections" CMAKE_C_FLAGS)
+   append_c_flag_if_supported("-fdata-sections" CMAKE_C_FLAGS)
+ 
+-  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -T${LINKER_SCRIPT_FILE_OUT}")
+-  set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -T${LINKER_SCRIPT_FILE_OUT}")
++  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${_prio_text_link_flag}")
++  set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} ${_prio_text_link_flag}")
+ 
+ else()
+   if(LINUX AND CPU_AARCH64)
+diff -Naur a/tools/setup_helpers/generate_linker_script.py b/tools/setup_helpers/generate_linker_script.py
+--- a/tools/setup_helpers/generate_linker_script.py	2026-07-22 01:22:12.418966529 +0200
++++ b/tools/setup_helpers/generate_linker_script.py	2026-07-22 01:23:11.178670974 +0200
+@@ -1,27 +1,119 @@
+ import argparse
+ import os
++import re
++import shutil
+ import subprocess
++import sys
+ from pathlib import Path
++from typing import List, Optional
+ 
+ 
+-def gen_linker_script(
+-    filein: str = "cmake/prioritized_text.txt", fout: str = "cmake/linker_script.ld"
+-) -> None:
++def _read_prioritized_symbols(filein: str) -> List[str]:
+     with open(filein) as f:
+-        prioritized_text = f.readlines()
+-        prioritized_text = [
+-            line.replace("\n", "") for line in prioritized_text if line != "\n"
+-        ]
+-    ld = os.environ.get("LD", "ld")
+-    linker_script_lines = subprocess.check_output([ld, "-verbose"], text=True).split(
+-        "\n"
++        return [line.rstrip("\n") for line in f if line.strip()]
++
++
++def _linker_version_text(ld: str) -> str:
++    """Return combined version output for ``ld``, or empty string if unusable."""
++    try:
++        proc = subprocess.run(
++            [ld, "--version"],
++            check=False,
++            capture_output=True,
++            text=True,
++            timeout=30,
++        )
++    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
++        return ""
++    return (proc.stdout or "") + (proc.stderr or "")
++
++
++def detect_linker_flavor(ld: Optional[str] = None) -> str:
++    """
++    Classify the linker used for prioritized-text layout.
++
++    Returns one of: ``lld``, ``mold``, ``bfd``, ``unknown``.
++    """
++    ld = ld or os.environ.get("LD", "ld")
++    text = _linker_version_text(ld)
++    if not text:
++        return "unknown"
++    head = text.splitlines()[0] if text.splitlines() else text
++    head_l = head.lower()
++    full_l = text.lower()
++    # LLD (including distro wrappers that put "LLD" on the first line).
++    if re.search(r"\blld\b", head_l) or re.search(r"\blld\b", full_l[:200]):
++        return "lld"
++    if "mold" in head_l:
++        return "mold"
++    if "gnu ld" in full_l or "gnu binutils" in full_l:
++        return "bfd"
++    # gold still supports a default script dump via -verbose in some builds.
++    if "gnu gold" in full_l or head_l.startswith("gnu gold") or " gold " in head_l:
++        return "bfd"
++    return "unknown"
++
++
++def _can_dump_default_script(ld: str) -> bool:
++    """True if ``ld -verbose`` emits a GNU-style default linker script."""
++    try:
++        proc = subprocess.run(
++            [ld, "-verbose"],
++            check=False,
++            capture_output=True,
++            text=True,
++            timeout=60,
++        )
++    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
++        return False
++    out = proc.stdout or ""
++    if proc.returncode != 0:
++        return False
++    return out.count("==================================================") >= 2
++
++
++def _resolve_bfd_ld(preferred: str) -> str:
++    """
++    Pick a linker that can dump a default script with ``-verbose``.
++
++    Prefer ``preferred`` when it is GNU ld; otherwise try ``ld.bfd`` / ``ld``.
++    """
++    candidates: List[str] = []
++    for c in (preferred, "ld.bfd", "ld"):
++        if c and c not in candidates:
++            candidates.append(c)
++    for c in candidates:
++        if shutil.which(c) and _can_dump_default_script(c):
++            return c
++    raise RuntimeError(
++        "No GNU ld found that supports 'ld -verbose' default-script dump "
++        f"(tried: {', '.join(candidates)}). Set LD=ld.bfd or use LLD/mold."
+     )
+ 
++
++def gen_bfd_linker_script(filein: str, fout: str, ld: str) -> str:
++    """Generate a full GNU ld script with hot ``.text.<sym>`` sections first."""
++    prioritized_text = _read_prioritized_symbols(filein)
++    ld = _resolve_bfd_ld(ld)
++
++    proc = subprocess.run(
++        [ld, "-verbose"],
++        check=True,
++        capture_output=True,
++        text=True,
++        timeout=60,
++    )
++    linker_script_lines = (proc.stdout or "").split("\n")
++
+     indices = [
+         i
+         for i, x in enumerate(linker_script_lines)
+         if x == "=================================================="
+     ]
++    if len(indices) < 2:
++        raise RuntimeError(
++            f"{ld} -verbose did not produce a GNU default linker script dump"
++        )
+     linker_script_lines = linker_script_lines[indices[0] + 1 : indices[1]]
+ 
+     text_line_start = [
+@@ -31,13 +123,10 @@
+         raise AssertionError("The linker script has multiple text sections!")
+     text_line_start = text_line_start[0]
+ 
+-    # ensure that parent directory exists before writing
+-    # pyrefly: ignore [bad-assignment]
+-    fout = Path(fout)
+-    # pyrefly: ignore [missing-attribute]
+-    fout.parent.mkdir(parents=True, exist_ok=True)
++    fout_path = Path(fout)
++    fout_path.parent.mkdir(parents=True, exist_ok=True)
+ 
+-    with open(fout, "w") as f:
++    with open(fout_path, "w") as f:
+         for lineid, line in enumerate(linker_script_lines):
+             if lineid == text_line_start + 2:
+                 f.write("    *(\n")
+@@ -46,10 +135,89 @@
+                 f.write("    )\n")
+             f.write(f"{line}\n")
+ 
++    return f"-T{fout_path}"
++
++
++def gen_lld_symbol_ordering(filein: str) -> str:
++    """
++    LLD: order input sections by hot symbol names.
++
++    ``prioritized_text.txt`` already lists mangled symbols; with
++    ``-ffunction-sections`` each lives in ``.text.<sym>`` and LLD's
++    ``--symbol-ordering-file`` places them early in the image.
++    """
++    symbols = _read_prioritized_symbols(filein)
++    if not symbols:
++        raise RuntimeError(f"No symbols found in {filein}")
++    return f"-Wl,--symbol-ordering-file={filein}"
++
++
++def gen_mold_section_ordering(filein: str, fout: str) -> str:
++    """
++    mold: ``--section-ordering-file`` with ``.text.<sym>`` section names
++    (same naming as the BFD script path under ``-ffunction-sections``).
++    """
++    symbols = _read_prioritized_symbols(filein)
++    if not symbols:
++        raise RuntimeError(f"No symbols found in {filein}")
++
++    fout_path = Path(fout)
++    if fout_path.suffix == ".ld":
++        fout_path = fout_path.with_name("section_ordering.txt")
++    fout_path.parent.mkdir(parents=True, exist_ok=True)
++    with open(fout_path, "w") as f:
++        for sym in symbols:
++            f.write(f".text.{sym}\n")
++    return f"-Wl,--section-ordering-file={fout_path}"
++
++
++def gen_linker_script(
++    filein: str = "cmake/prioritized_text.txt",
++    fout: str = "cmake/linker_script.ld",
++    ld: Optional[str] = None,
++) -> str:
++    """
++    Prepare prioritized-text link flags for the active linker.
++
++    Returns the flag string for shared/module linker flags
++    (e.g. ``-T...`` or ``-Wl,--symbol-ordering-file=...``).
++    Prints ``PRIORITIZED_TEXT_LINKER_FLAG=...`` on stdout for CMake.
++    """
++    ld = ld or os.environ.get("LD", "ld")
++    flavor = detect_linker_flavor(ld)
++
++    if flavor == "lld":
++        flag = gen_lld_symbol_ordering(filein)
++        strategy = "symbol-ordering (lld)"
++    elif flavor == "mold":
++        flag = gen_mold_section_ordering(filein, fout)
++        strategy = "section-ordering (mold)"
++    else:
++        # GNU ld / gold / unknown: BFD-style default script injection.
++        # _resolve_bfd_ld tries ld.bfd when default ld cannot dump a script.
++        try:
++            flag = gen_bfd_linker_script(filein, fout, ld)
++            strategy = f"bfd-script ({flavor})"
++        except RuntimeError:
++            # Last resort on LLD-as-ld systems with odd version strings.
++            if shutil.which("ld.lld") or "lld" in os.path.basename(ld):
++                flag = gen_lld_symbol_ordering(filein)
++                strategy = "symbol-ordering (fallback)"
++            else:
++                raise
++
++    print(f"-- prioritized text linker strategy: {strategy}", file=sys.stderr)
++    print(f"PRIORITIZED_TEXT_LINKER_FLAG={flag}")
++    return flag
++
+ 
+ if __name__ == "__main__":
+     parser = argparse.ArgumentParser(
+-        description="Generate linker file based on prioritized symbols. Used for link-time optimization.",
++        description=(
++            "Generate linker layout for prioritized (hot) symbols. "
++            "Supports GNU ld (custom script from 'ld -verbose'), LLD "
++            "(--symbol-ordering-file), and mold (--section-ordering-file)."
++        ),
+     )
+     parser.add_argument(
+         "--filein",
+@@ -57,8 +225,27 @@
+         default=argparse.SUPPRESS,
+     )
+     parser.add_argument(
+-        "--fout", help="Output path for linker ld file", default=argparse.SUPPRESS
++        "--fout",
++        help="Output path for generated linker script / section list",
++        default=argparse.SUPPRESS,
++    )
++    parser.add_argument(
++        "--ld",
++        help="Linker binary to inspect (default: $LD or 'ld')",
++        default=argparse.SUPPRESS,
++    )
++    parser.add_argument(
++        "--print-flavor",
++        action="store_true",
++        help="Print linker flavor (lld|mold|bfd|unknown) and exit",
+     )
+-    # convert args to a dict to pass to gen_linker_script
+-    kwargs = vars(parser.parse_args())
++    args = parser.parse_args()
++    if args.print_flavor:
++        ld = getattr(args, "ld", None) or os.environ.get("LD", "ld")
++        print(detect_linker_flavor(ld))
++        raise SystemExit(0)
++
++    # convert args to a dict to pass to gen_linker_script (only explicit flags)
++    kwargs = vars(args)
++    kwargs.pop("print_flavor", None)
+     gen_linker_script(**kwargs)

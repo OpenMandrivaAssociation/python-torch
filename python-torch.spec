@@ -2,16 +2,20 @@
 
 Name:           python-torch
 Version:        2.13.0
-Release:        1
+Release:        2
 Summary:        PyTorch machine learning framework (built from source)
 License:        BSD-3-Clause
 URL:            https://pytorch.org
 # Full source bundle published by the PyTorch project (NOT the shallow GitHub
 # tag archive — that omits third_party submodules needed to compile).
 Source0:        https://github.com/pytorch/pytorch/releases/download/v%{version}/pytorch-v%{version}.tar.gz
+# LLD/mold support for USE_PRIORITIZED_TEXT_FOR_LD (default ON on aarch64).
+# Upstream only handled GNU ld's "ld -verbose" default-script dump.
+Patch0:         pytorch-2.13.0-lld-prioritized-text.patch
 
 BuildRequires:  cmake
 BuildRequires:  ninja
+BuildRequires:  binutils
 BuildRequires:  pkgconfig(python3)
 BuildRequires:  python%{pyver}dist(setuptools)
 BuildRequires:  python%{pyver}dist(wheel)
@@ -38,7 +42,7 @@ Requires:       python%{pyver}dist(sympy)
 Tensors and dynamic neural networks in Python with strong GPU acceleration.
 
 %prep
-%autosetup -n pytorch-v%{version}
+%autosetup -n pytorch-v%{version} -p1
 
 %build
 export MAX_JOBS=%{_smp_build_ncpus}
