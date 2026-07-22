@@ -1,7 +1,48 @@
 diff -Naur a/CMakeLists.txt b/CMakeLists.txt
---- a/CMakeLists.txt	2026-07-22 01:22:12.422330160 +0200
-+++ b/CMakeLists.txt	2026-07-22 01:23:11.175728068 +0200
-@@ -758,16 +758,26 @@
+--- a/CMakeLists.txt	2026-07-22 22:18:42.008867603 +0200
++++ b/CMakeLists.txt	2026-07-22 22:18:57.286024645 +0200
+@@ -698,12 +698,36 @@
+ 
+ string(APPEND CMAKE_CUDA_FLAGS " -Xfatbin -compress-all")
+ 
+-# Set linker max-page-size to 64KiB on AArch64 Linux
+-# And stub group size to 32MiB to workaround R_AARCH64_CALL26
+-# relocation errors
++# Set linker max-page-size to 64KiB on AArch64 Linux.
++# GNU ld also needs a larger stub group to work around R_AARCH64_CALL26
++# relocation errors; --stub-group-size is a BFD-only flag (LLD/mold reject
++# it and generate range-extension thunks themselves).
+ if(LINUX AND CPU_AARCH64)
+   add_link_options_if_supported("-z,max-page-size=0x10000")
+-  add_link_options_if_supported("--stub-group-size=0x2000000")
++
++  set(_pytorch_ld_cmd "ld")
++  if(CMAKE_LINKER)
++    set(_pytorch_ld_cmd "${CMAKE_LINKER}")
++  elseif(DEFINED ENV{LD})
++    set(_pytorch_ld_cmd "$ENV{LD}")
++  endif()
++  execute_process(
++    COMMAND ${_pytorch_ld_cmd} --version
++    OUTPUT_VARIABLE _pytorch_ld_ver_out
++    ERROR_VARIABLE _pytorch_ld_ver_err
++    RESULT_VARIABLE _pytorch_ld_ver_rc
++    OUTPUT_STRIP_TRAILING_WHITESPACE
++    ERROR_STRIP_TRAILING_WHITESPACE
++  )
++  set(_pytorch_ld_ver "${_pytorch_ld_ver_out}\n${_pytorch_ld_ver_err}")
++  # check_linker_flag can mis-detect support for BFD-only options when the
++  # compiler driver is used; filter explicitly for LLD/mold.
++  if(_pytorch_ld_ver MATCHES "LLD|mold")
++    message(STATUS
++      "Skipping --stub-group-size (GNU ld only; linker is ${_pytorch_ld_cmd})")
++  else()
++    add_link_options_if_supported("--stub-group-size=0x2000000")
++  endif()
+ endif()
+ 
+ # Set INTERN_BUILD_MOBILE for all mobile builds. Components that are not
+@@ -758,16 +782,26 @@
  endif()
  
  # Prioritized Text Linker Optimization
@@ -28,7 +69,7 @@ diff -Naur a/CMakeLists.txt b/CMakeLists.txt
      RESULT_VARIABLE _gen_result
      OUTPUT_VARIABLE _gen_output
      ERROR_VARIABLE  _gen_error
-@@ -775,16 +785,33 @@
+@@ -775,16 +809,33 @@
  
    if(NOT _gen_result EQUAL 0)
      message(FATAL_ERROR
@@ -66,8 +107,8 @@ diff -Naur a/CMakeLists.txt b/CMakeLists.txt
  else()
    if(LINUX AND CPU_AARCH64)
 diff -Naur a/tools/setup_helpers/generate_linker_script.py b/tools/setup_helpers/generate_linker_script.py
---- a/tools/setup_helpers/generate_linker_script.py	2026-07-22 01:22:12.418966529 +0200
-+++ b/tools/setup_helpers/generate_linker_script.py	2026-07-22 01:23:11.178670974 +0200
+--- a/tools/setup_helpers/generate_linker_script.py	2026-07-22 22:18:42.010158759 +0200
++++ b/tools/setup_helpers/generate_linker_script.py	2026-07-22 22:18:42.019843007 +0200
 @@ -1,27 +1,119 @@
  import argparse
  import os
