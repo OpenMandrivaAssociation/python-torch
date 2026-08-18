@@ -1,0 +1,147 @@
+TheRock / ROCm 7.14 no longer ships roctracer's libroctx64. ROCTx
+markers are optional (torch.cuda.nvtx / profiler ranges); compute
+does not need them. Search lib64 and rocprofiler-sdk-roctx as well,
+and stub the bindings when nothing is found.
+
+diff -Naur a/cmake/public/LoadHIP.cmake b/cmake/public/LoadHIP.cmake
+--- a/cmake/public/LoadHIP.cmake
++++ b/cmake/public/LoadHIP.cmake
+@@ -337,8 +337,22 @@
+   list(REMOVE_DUPLICATES ROCM_INCLUDE_DIRS)
+ 
+   if(UNIX)
+-    # roctx is part of roctracer
+-    find_library(ROCM_ROCTX_LIB roctx64 HINTS ${ROCM_PATH}/lib)
++    # roctx was libroctx64 in roctracer; TheRock 7.x moved it to
++    # rocprofiler-sdk-roctx. OMV FHS is lib64, not ${prefix}/lib.
++    find_library(ROCM_ROCTX_LIB
++      NAMES roctx64 rocprofiler-sdk-roctx
++      HINTS ${ROCM_PATH}/lib ${ROCM_PATH}/lib64)
++    if(ROCM_ROCTX_LIB)
++      message(STATUS "Found ROCTx: ${ROCM_ROCTX_LIB}")
++      set(USE_ROCTX ON CACHE INTERNAL "ROCTx markers available")
++    else()
++      message(STATUS
++        "ROCTx (libroctx64 / librocprofiler-sdk-roctx) not found — "
++        "torch.cuda.nvtx will be a no-op. Install rocprofiler-sdk-roctx "
++        "to enable markers.")
++      set(USE_ROCTX OFF CACHE INTERNAL "ROCTx markers available")
++      unset(ROCM_ROCTX_LIB CACHE)
++    endif()
+ 
+     set(PROJECT_RANDOM_BINARY_DIR "${PROJECT_BINARY_DIR}")
+ 
+diff -Naur a/torch/CMakeLists.txt b/torch/CMakeLists.txt
+--- a/torch/CMakeLists.txt
++++ b/torch/CMakeLists.txt
+@@ -172,8 +172,11 @@
+       USE_ROCM
+       __HIP_PLATFORM_AMD__
+       )
+-    if(NOT WIN32)
++    if(USE_ROCTX AND ROCM_ROCTX_LIB)
+       list(APPEND TORCH_PYTHON_LINK_LIBRARIES ${ROCM_ROCTX_LIB})
++      list(APPEND TORCH_PYTHON_COMPILE_DEFINITIONS USE_ROCTX)
++    elseif(NOT WIN32)
++      message(STATUS "Building torch_python without ROCTx")
+     endif()
+ endif()
+ 
+diff -Naur a/caffe2/CMakeLists.txt b/caffe2/CMakeLists.txt
+--- a/caffe2/CMakeLists.txt
++++ b/caffe2/CMakeLists.txt
+@@ -1431,6 +1431,9 @@
+     USE_ROCM
+     __HIP_PLATFORM_AMD__
+     )
++  if(USE_ROCTX)
++    target_compile_definitions(torch_hip PRIVATE USE_ROCTX)
++  endif()
+   # NB: Massive hack.  torch/csrc/jit/codegen/fuser/codegen.cpp includes
+   # torch/csrc/jit/codegen/fuser/cuda/resource_strings.h which changes the
+   # strings depending on if you're __HIP_PLATFORM_AMD__ or not.
+diff -Naur a/torch/csrc/cuda/shared/nvtx.cpp b/torch/csrc/cuda/shared/nvtx.cpp
+--- a/torch/csrc/cuda/shared/nvtx.cpp
++++ b/torch/csrc/cuda/shared/nvtx.cpp
+@@ -4,21 +4,21 @@
+ 
+ #include <cuda_runtime.h>
+ 
+-#ifndef ROCM_ON_WINDOWS
++#if !defined(USE_ROCM) || defined(USE_ROCTX)
+ #if CUDART_VERSION >= 13000 || defined(TORCH_CUDA_USE_NVTX3)
+ #include <nvtx3/nvtx3.hpp>
+ #else // CUDART_VERSION >= 13000 || defined(TORCH_CUDA_USE_NVTX3)
+ #include <nvToolsExt.h>
+ #endif // CUDART_VERSION >= 13000 || defined(TORCH_CUDA_USE_NVTX3)
+-#else // ROCM_ON_WINDOWS
++#else // ROCm without ROCTx
+ #include <c10/util/Exception.h>
+-#endif // ROCM_ON_WINDOWS
++#endif
+ #include <c10/cuda/CUDAException.h>
+ #include <torch/csrc/utils/pybind.h>
+ 
+ namespace torch::cuda::shared {
+ 
+-#ifndef ROCM_ON_WINDOWS
++#if !defined(USE_ROCM) || defined(USE_ROCTX)
+ struct RangeHandle {
+   nvtxRangeId_t id;
+   const char* msg;
+@@ -70,7 +70,7 @@
+   nvtx.def("deviceRangeEnd", device_nvtxRangeEnd);
+ }
+ 
+-#else // ROCM_ON_WINDOWS
++#else // ROCm without ROCTx
+ 
+ static void printUnavailableWarning() {
+   TORCH_WARN_ONCE("Warning: roctracer isn't available on Windows");
+@@ -119,6 +119,6 @@
+   nvtx.def("deviceRangeStart", deviceRangeStart);
+   nvtx.def("deviceRangeEnd", deviceRangeEnd);
+ }
+-#endif // ROCM_ON_WINDOWS
++#endif
+ 
+ } // namespace torch::cuda::shared
+diff -Naur a/torch/csrc/profiler/stubs/cuda.cpp b/torch/csrc/profiler/stubs/cuda.cpp
+--- a/torch/csrc/profiler/stubs/cuda.cpp
++++ b/torch/csrc/profiler/stubs/cuda.cpp
+@@ -1,14 +1,14 @@
+ #include <sstream>
+ 
+-#ifndef ROCM_ON_WINDOWS
++#if !defined(USE_ROCM) || defined(USE_ROCTX)
+ #if CUDART_VERSION >= 13000 || defined(TORCH_CUDA_USE_NVTX3)
+ #include <nvtx3/nvtx3.hpp>
+ #else
+ #include <nvToolsExt.h>
+ #endif
+-#else // ROCM_ON_WINDOWS
++#else // ROCm without ROCTx
+ #include <c10/util/Exception.h>
+-#endif // ROCM_ON_WINDOWS
++#endif
+ #include <c10/cuda/CUDAGuard.h>
+ #include <c10/util/ApproximateClock.h>
+ #include <c10/util/irange.h>
+@@ -74,7 +74,7 @@
+     return ms * 1000.0;
+   }
+ 
+-#ifndef ROCM_ON_WINDOWS
++#if !defined(USE_ROCM) || defined(USE_ROCTX)
+   void mark(const char* name) const override {
+     ::nvtxMark(name);
+   }
+@@ -86,7 +86,7 @@
+   void rangePop() const override {
+     ::nvtxRangePop();
+   }
+-#else // ROCM_ON_WINDOWS
++#else // ROCm without ROCTx
+   static void printUnavailableWarning() {
+     TORCH_WARN_ONCE("Warning: roctracer isn't available on Windows");
+   }
