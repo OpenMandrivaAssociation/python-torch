@@ -70,6 +70,7 @@ BuildRequires:	cmake(rocprim)
 BuildRequires:	cmake(rocthrust)
 BuildRequires:	cmake(rocrand)
 BuildRequires:	rocm-runtime-devel
+BuildRequires:	cmake(rocm_smi)
 # ATen Vulkan (desktop): system loader + glslc for shader codegen.
 BuildRequires:	pkgconfig(vulkan)
 BuildRequires:	glslc
