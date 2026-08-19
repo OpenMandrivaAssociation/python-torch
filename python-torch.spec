@@ -52,6 +52,8 @@ BuildRequires:	python%{pyver}dist(packaging)
 
 # ROCm 7.14 (FHS /usr, not /opt/rocm)
 BuildRequires:	hipcc
+# clang-linker-wrapper looks this up on PATH; hipcc only Requires clang.
+BuildRequires:	/usr/bin/clang-offload-bundler
 BuildRequires:	cmake(hip)
 BuildRequires:	cmake(hipblas)
 BuildRequires:	cmake(rocblas)
