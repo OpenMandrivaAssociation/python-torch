@@ -71,6 +71,8 @@ BuildRequires:	cmake(rocthrust)
 BuildRequires:	cmake(rocrand)
 BuildRequires:	rocm-runtime-devel
 BuildRequires:	cmake(rocm_smi)
+# rocm_smi-config.cmake does pkg_check_modules(libdrm REQUIRED).
+BuildRequires:	pkgconfig(libdrm)
 # ATen Vulkan (desktop): system loader + glslc for shader codegen.
 BuildRequires:	pkgconfig(vulkan)
 BuildRequires:	glslc
