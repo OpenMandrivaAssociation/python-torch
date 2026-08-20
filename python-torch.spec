@@ -76,6 +76,8 @@ BuildRequires:	rocm-runtime-devel
 BuildRequires:	cmake(rocm_smi)
 # rocm_smi-config.cmake does pkg_check_modules(libdrm REQUIRED).
 BuildRequires:	pkgconfig(libdrm)
+# c10d/symm_mem/intra_node_comm.cpp includes <amd_smi/amdsmi.h>
+BuildRequires:	cmake(amd_smi)
 # ATen Vulkan (desktop): system loader + glslc for shader codegen.
 BuildRequires:	pkgconfig(vulkan)
 BuildRequires:	glslc
