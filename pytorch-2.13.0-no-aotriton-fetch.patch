@@ -1,0 +1,18 @@
+cmake_dependent_option treats env USE_FLASH_ATTENTION=0 (CACHE STRING)
+as unset and forces the ON default. That pulls cmake/External/aotriton.cmake
+which git-clones aotriton_runtime. ABF builders have no network.
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -983,6 +983,11 @@
+ # Cannot be put into Dependencies.cmake due circular dependency:
+ # USE_FLASH_ATTENTION -> USE_ROCM -> Dependencies.cmake -> aotriton.cmake
+ #
++# cmake_dependent_option ignores CACHE STRING "0" from the environment
++# and restores the ON default. AOTriton clones from GitHub.
++set(USE_FLASH_ATTENTION OFF CACHE BOOL "offline: no AOTriton fetch" FORCE)
++set(USE_MEM_EFF_ATTENTION OFF CACHE BOOL "offline: no AOTriton fetch" FORCE)
++set(USE_MSLK OFF CACHE BOOL "offline: no AOTriton/MSLK fetch" FORCE)
+ if(USE_ROCM)
+   if(USE_FLASH_ATTENTION OR USE_MEM_EFF_ATTENTION)
+     include(cmake/External/aotriton.cmake)

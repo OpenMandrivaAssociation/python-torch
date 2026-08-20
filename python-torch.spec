@@ -32,6 +32,9 @@ Patch1:		pytorch-2.13.0-optional-roctx.patch
 # Clang 23: amdgcn buffer load/store builtins return/take unsigned
 # vector types; CK headers still use signed int32xN_t.
 Patch2:		pytorch-2.13.0-ck-clang23-buffer-builtins.patch
+# cmake_dependent_option ignores USE_FLASH_ATTENTION=0 from the env
+# and git-clones aotriton_runtime (no network on ABF).
+Patch3:		pytorch-2.13.0-no-aotriton-fetch.patch
 
 BuildRequires:	python
 BuildRequires:	cmake
