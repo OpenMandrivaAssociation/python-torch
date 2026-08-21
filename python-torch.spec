@@ -231,7 +231,7 @@ pip install --root=%{buildroot} --no-deps --verbose --ignore-installed \
 %license LICENSE
 %doc README.md NOTICE
 %{_bindir}/torchrun
-%{python_sitearch}/functorch
+# 2.13 ships functorch as torch/_functorch, not a top-level package
 %{python_sitearch}/torch
 %{python_sitearch}/torchgen
 %{python_sitearch}/torch-%{version}*.dist-info
