@@ -16,7 +16,7 @@
 
 Name:		python-torch
 Version:	2.13.0
-Release:	3
+Release:	4
 Summary:	PyTorch machine learning framework
 License:	BSD-3-Clause
 Group:		Development/Python
@@ -226,6 +226,11 @@ CFLAGS='%{torch_cflags}' CXXFLAGS='%{torch_cflags}' \
 pip install --root=%{buildroot} --no-deps --verbose --ignore-installed \
 	--no-warn-script-location --no-index --no-cache-dir \
 	--find-links ../RPMBUILD_wheels ../RPMBUILD_wheels/*.whl
+# cmake writes gitignored torch/version.py; setuptools/pip wheel
+# does not ship it. Without it `import torch` dies (xformers 655854).
+python -m tools.generate_torch_version --is-debug=0 \
+	--hip-version=7.14 --rocm-version=7.14.0
+install -m 644 torch/version.py %{buildroot}%{python_sitearch}/torch/version.py
 
 %files
 %license LICENSE
