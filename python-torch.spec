@@ -240,7 +240,9 @@ install -m 644 torch/version.py %{buildroot}%{python_sitearch}/torch/version.py
 %license LICENSE
 %doc README.md NOTICE
 %{_bindir}/torchrun
-# 2.13 ships functorch as torch/_functorch, not a top-level package
+# With BUILD_PYTHON=ON the wheel also installs the compat functorch/
+# package (earlier HIP builds omitted it; 2.13.0-5 then failed %files).
+%{python_sitearch}/functorch
 %{python_sitearch}/torch
 %{python_sitearch}/torchgen
 %{python_sitearch}/torch-%{version}*.dist-info
