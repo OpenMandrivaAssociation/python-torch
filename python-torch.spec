@@ -16,7 +16,7 @@
 
 Name:		python-torch
 Version:	2.13.0
-Release:	4
+Release:	5
 Summary:	PyTorch machine learning framework
 License:	BSD-3-Clause
 Group:		Development/Python
@@ -37,6 +37,10 @@ Patch2:		pytorch-2.13.0-ck-clang23-buffer-builtins.patch
 Patch3:		pytorch-2.13.0-no-aotriton-fetch.patch
 
 BuildRequires:	python
+# find_package(Python COMPONENTS Development.Module) — without
+# this cmake silently sets BUILD_PYTHON=OFF and the wheel has no
+# torch/_C*.so (xformers 656372: Failed to load PyTorch C extensions).
+BuildRequires:	pkgconfig(python)
 BuildRequires:	cmake
 BuildRequires:	ninja
 BuildRequires:	binutils
