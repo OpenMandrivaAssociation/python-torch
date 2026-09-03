@@ -10,13 +10,13 @@
 %global torch_cflags %(printf '%%s' '%{optflags}' | sed -e 's/-flto=thin//g' -e 's/-flto//g')
 
 # gfx9xx (Vega20 / MI50 / MI200 / MI300) + RDNA2/3/4.
-# Skip gfx803 (Polaris): PyTorch 2.13 has no real Polaris kernels;
+# Skip gfx803 (Polaris): PyTorch 2.14 has no real Polaris kernels;
 # ggml / hipBLAS still cover RX 550. hipBLASLt only has navi3x/4x.
 %global torch_rocm_arch gfx906;gfx908;gfx90a;gfx942;gfx1030;gfx1100;gfx1101;gfx1102;gfx1200;gfx1201
 
 Name:		python-torch
-Version:	2.13.0
-Release:	5
+Version:	2.14.0
+Release:	1
 Summary:	PyTorch machine learning framework
 License:	BSD-3-Clause
 Group:		Development/Python
@@ -26,15 +26,15 @@ URL:		https://pytorch.org
 Source0:	https://github.com/pytorch/pytorch/releases/download/v%{version}/pytorch-v%{version}.tar.gz
 # LLD/mold: skip GNU-ld-only --stub-group-size; prioritized-text
 # uses --symbol-ordering-file instead of a BFD -T script.
-Patch0:		pytorch-2.13.0-lld-compat.patch
-# TheRock 7.14 has no roctracer libroctx64. ROCTx markers are optional.
-Patch1:		pytorch-2.13.0-optional-roctx.patch
-# Clang 23: amdgcn buffer load/store builtins return/take unsigned
-# vector types; CK headers still use signed int32xN_t.
-Patch2:		pytorch-2.13.0-ck-clang23-buffer-builtins.patch
+Patch0:		pytorch-2.14.0-lld-compat.patch
+# TheRock 10.0 has no roctracer libroctx64. ROCTx markers are optional.
+Patch1:		pytorch-2.14.0-optional-roctx.patch
 # cmake_dependent_option ignores USE_FLASH_ATTENTION=0 from the env
 # and git-clones aotriton_runtime (no network on ABF).
-Patch3:		pytorch-2.13.0-no-aotriton-fetch.patch
+Patch2:		pytorch-2.14.0-no-aotriton-fetch.patch
+# HIP 7.15 reports as ROCm >= 7.14, so upstream requires hipfile.
+# OMV does not ship that early-access GPU-direct I/O library yet.
+Patch3:		pytorch-2.14.0-optional-hipfile.patch
 
 BuildRequires:	python
 # find_package(Python COMPONENTS Development.Module) — without
@@ -44,9 +44,13 @@ BuildRequires:	pkgconfig(python)
 BuildRequires:	cmake
 BuildRequires:	ninja
 BuildRequires:	binutils
+# 2.14's PEP 517 backend is scikit-build-core (setup.py is a shim).
+BuildRequires:	python%{pyver}dist(scikit-build-core)
 BuildRequires:	python%{pyver}dist(setuptools)
 BuildRequires:	python%{pyver}dist(wheel)
 BuildRequires:	python%{pyver}dist(pip)
+BuildRequires:	python%{pyver}dist(packaging)
+BuildRequires:	python%{pyver}dist(six)
 BuildRequires:	python%{pyver}dist(numpy)
 BuildRequires:	python%{pyver}dist(pyyaml)
 BuildRequires:	python%{pyver}dist(typing-extensions)
@@ -55,9 +59,8 @@ BuildRequires:	python%{pyver}dist(networkx)
 BuildRequires:	python%{pyver}dist(sympy)
 BuildRequires:	python%{pyver}dist(fsspec)
 BuildRequires:	python%{pyver}dist(filelock)
-BuildRequires:	python%{pyver}dist(packaging)
 
-# ROCm 7.14 (FHS /usr, not /opt/rocm)
+# TheRock 10.0 (FHS /usr, not /opt/rocm). HIP language/ABI is 7.15.
 BuildRequires:	hipcc
 # clang-linker-wrapper looks this up on PATH; hipcc only Requires clang.
 BuildRequires:	/usr/bin/clang-offload-bundler
@@ -76,6 +79,7 @@ BuildRequires:	cmake(hipcub)
 BuildRequires:	cmake(rocprim)
 BuildRequires:	cmake(rocthrust)
 BuildRequires:	cmake(rocrand)
+BuildRequires:	cmake(amd_comgr)
 BuildRequires:	rocm-runtime-devel
 BuildRequires:	cmake(rocm_smi)
 # rocm_smi-config.cmake does pkg_check_modules(libdrm REQUIRED).
@@ -102,6 +106,13 @@ Recommends:	hipblaslt%{?_isa}
 Tensors and dynamic neural networks in Python. Compiled from the
 official pytorch-v%{version} source tarball (not a PyPI wheel).
 
+2.14 brings NVGEMM (CuTeDSL CUTLASS kernels in Inductor), a new
+nccl2 distributed backend, first-class c10d fault tolerance,
+torch.switch / CUDA-graphable while_loop, @dynamic_spec dynamic
+shapes, and experimental torch.compile for complex tensors.
+Official wheels target ROCm 7.14 via TheRock; this package is
+built against TheRock 10.0 (HIP 7.15).
+
 GPU:
 * ROCm/HIP — AMD (gfx906, gfx908, gfx90a, gfx942, gfx1030,
   gfx1100–1102, gfx1200–1201). This is torch.cuda on Radeon /
@@ -112,7 +123,8 @@ CUDA is off. Flash-attention/AOTriton is off (it downloads
 prebuilt images; ABF has no network). LTO is off (libtorch
 link OOMs with full LTO on 64G builders). Bundled CK GEMM/
 SDPA/MSLK are off until Composable Kernel is fixed for
-Clang 23 vector builtin types.
+Clang 23 vector builtin types. hipFile (GPU-direct I/O) is
+off until that library is packaged.
 
 %prep
 %autosetup -C -n pytorch-v%{version} -p1
@@ -157,6 +169,9 @@ export USE_MSLK=0
 # AOTriton is fetched from GitHub; builders are offline.
 export USE_FLASH_ATTENTION=0
 export USE_MEM_EFF_ATTENTION=0
+# hipFile is not packaged; GPU-direct POSIX I/O is unused here.
+export USE_CUFILE=0
+export USE_HIPSPARSELT=0
 # OMV ROCm is FHS, not /opt/rocm. hipcc / clang++ live in /usr/bin.
 export ROCM_PATH=%{_prefix}
 export HIP_CLANG_PATH=%{_bindir}
@@ -195,22 +210,24 @@ cat >> "$_cmpre/include/hip/amd_detail/host_defines.h" <<'EOF'
 #endif
 #endif
 EOF
-# TheRock 7.14 OMV packages do not ship rocm-core/rocm_version.h
+# TheRock 10.0 OMV packages do not ship rocm-core/rocm_version.h
 # (only a leftover /opt/rocm-*). TunableOp includes it on Linux.
+# Report the HIP API level (7.15), not the TheRock package number,
+# so feature checks stay on the ABI we actually have.
 mkdir -p "$_cmpre/include/rocm-core"
 cat > "$_cmpre/include/rocm-core/rocm_version.h" <<'EOF'
-/* OMV FHS stub — matches TheRock 7.14 packaging stream. */
+/* OMV FHS stub — TheRock 10.0 packaging stream, HIP 7.15 ABI. */
 #ifndef _ROCM_VERSION_H_
 #define _ROCM_VERSION_H_
 #define ROCM_VERSION_MAJOR 7
-#define ROCM_VERSION_MINOR 14
+#define ROCM_VERSION_MINOR 15
 #define ROCM_VERSION_PATCH 0
-#define ROCM_BUILD_INFO "7.14.0-openmandriva"
+#define ROCM_BUILD_INFO "10.0.0-openmandriva"
 #endif
 EOF
 export CMAKE_PREFIX_PATH="$_cmpre${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
-# Release tarball is not a git checkout; without these, setup.py
-# names the dist 2.13.0a0+gitunknown.
+# Release tarball is not a git checkout; without these, setup.py /
+# scikit-build-core names the dist 2.14.0a0+gitunknown.
 export PYTORCH_BUILD_VERSION=%{version}
 export PYTORCH_BUILD_NUMBER=%{release}
 if [ -f version.txt ]; then
@@ -230,16 +247,17 @@ CFLAGS='%{torch_cflags}' CXXFLAGS='%{torch_cflags}' \
 pip install --root=%{buildroot} --no-deps --verbose --ignore-installed \
 	--no-warn-script-location --no-index --no-cache-dir \
 	--find-links ../RPMBUILD_wheels ../RPMBUILD_wheels/*.whl
-# cmake writes gitignored torch/version.py; setuptools/pip wheel
-# does not ship it. Without it `import torch` dies (xformers 655854).
+# cmake writes gitignored torch/version.py; the wheel may omit it.
+# Without it `import torch` dies (xformers 655854).
 python -m tools.generate_torch_version --is-debug=0 \
-	--hip-version=7.14 --rocm-version=7.14.0
+	--hip-version=7.15 --rocm-version=10.0.0
 install -m 644 torch/version.py %{buildroot}%{python_sitearch}/torch/version.py
 
 %files
 %license LICENSE
 %doc README.md NOTICE
 %{_bindir}/torchrun
+%{_bindir}/torchfrtrace
 # With BUILD_PYTHON=ON the wheel also installs the compat functorch/
 # package (earlier HIP builds omitted it; 2.13.0-5 then failed %files).
 %{python_sitearch}/functorch

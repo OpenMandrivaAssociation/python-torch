@@ -1,0 +1,28 @@
+TheRock 10.0 / HIP 7.15 reports ROCM_VERSION_DEV >= 7.14, so
+upstream treats hipfile as required. hipFile is still early-access
+and is not packaged in OMV; GPU compute does not need it. Search
+optionally and turn USE_CUFILE off when it is missing.
+
+--- a/cmake/public/LoadHIP.cmake
++++ b/cmake/public/LoadHIP.cmake
+@@ -346,9 +346,18 @@
+   if(UNIX)
+     find_package_and_print_version(rccl)
+     find_package_and_print_version(hsa-runtime64 REQUIRED)
+-    # hipFile is Linux-only and ships with ROCm 7.14 and later, where it is required.
++    # hipFile is Linux-only and ships with ROCm 7.14+ (cuFile analog).
++    # It is still early-access; OMV TheRock 10.0 does not package it.
+     if(ROCM_VERSION_DEV VERSION_GREATER_EQUAL "7.14.0")
+-      find_package_and_print_version(hipfile REQUIRED)
++      find_package_and_print_version(hipfile)
++      if(hipfile_FOUND)
++        message(STATUS "Found hipfile — enabling USE_CUFILE")
++      else()
++        message(STATUS
++          "hipfile not found — building without GPU-direct I/O "
++          "(USE_CUFILE=OFF). Package hipfile to enable it.")
++        set(USE_CUFILE OFF CACHE BOOL "hipfile not available" FORCE)
++      endif()
+     endif()
+   endif()
+ 

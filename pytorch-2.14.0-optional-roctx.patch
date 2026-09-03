@@ -1,4 +1,4 @@
-TheRock / ROCm 7.14 no longer ships roctracer's libroctx64. ROCTx
+TheRock 10.0 (HIP 7.15) no longer ships roctracer's libroctx64. ROCTx
 markers are optional (torch.cuda.nvtx / profiler ranges); compute
 does not need them. Search lib64 and rocprofiler-sdk-roctx as well,
 and stub the bindings when nothing is found.
@@ -12,7 +12,7 @@ diff -Naur a/cmake/public/LoadHIP.cmake b/cmake/public/LoadHIP.cmake
    if(UNIX)
 -    # roctx is part of roctracer
 -    find_library(ROCM_ROCTX_LIB roctx64 HINTS ${ROCM_PATH}/lib)
-+    # roctx was libroctx64 in roctracer; TheRock 7.x moved it to
++    # roctx was libroctx64 in roctracer; TheRock 7.x/10.0 moved it to
 +    # rocprofiler-sdk-roctx. OMV FHS is lib64, not ${prefix}/lib.
 +    find_library(ROCM_ROCTX_LIB
 +      NAMES roctx64 rocprofiler-sdk-roctx
