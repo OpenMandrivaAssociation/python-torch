@@ -61,7 +61,8 @@ BuildRequires:	python%{pyver}dist(networkx)
 BuildRequires:	python%{pyver}dist(sympy)
 BuildRequires:	python%{pyver}dist(fsspec)
 BuildRequires:	python%{pyver}dist(filelock)
-BuildRequires:	cmake(fmt)
+# 2.14 vendors fmt 12.2; 11.2 headers may compile but are untested.
+BuildRequires:	cmake(fmt) >= 12
 
 # TheRock 10.0 (FHS /usr, not /opt/rocm). HIP language/ABI is 7.15.
 BuildRequires:	hipcc
