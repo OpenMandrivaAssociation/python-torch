@@ -44,6 +44,9 @@ BuildRequires:	pkgconfig(python)
 BuildRequires:	cmake
 BuildRequires:	ninja
 BuildRequires:	binutils
+# CMake 4 + C++20 can enable P1689 module scanning for bundled fmt;
+# without this the ninja line is CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS-NOTFOUND.
+BuildRequires:	/usr/bin/clang-scan-deps
 # 2.14's PEP 517 backend is scikit-build-core (setup.py is a shim).
 BuildRequires:	python%{pyver}dist(scikit-build-core)
 BuildRequires:	python%{pyver}dist(setuptools)
@@ -202,7 +205,7 @@ export hipcub_DIR="$_cmpre/%{_lib}/cmake/hipcub"
 export rocthrust_DIR="$_cmpre/%{_lib}/cmake/rocthrust"
 # scikit-build-core 1.0 prepends /usr via sys.prefix; CMAKE_ARGS
 # is the reliable way to pin PackageName_DIR past that.
-export CMAKE_ARGS="${CMAKE_ARGS:+$CMAKE_ARGS }-Dhipcub_DIR=$hipcub_DIR -Drocthrust_DIR=$rocthrust_DIR"
+export CMAKE_ARGS="${CMAKE_ARGS:+$CMAKE_ARGS }-Dhipcub_DIR=$hipcub_DIR -Drocthrust_DIR=$rocthrust_DIR -DCMAKE_CXX_SCAN_FOR_MODULES=OFF"
 ln -sfn %{_includedir}/hipcub "$_cmpre/include/hipcub"
 ln -sfn %{_includedir}/thrust "$_cmpre/include/thrust"
 ln -sfn %{_includedir}/rocprim "$_cmpre/include/rocprim"
