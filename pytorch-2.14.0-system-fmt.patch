@@ -1,0 +1,100 @@
+Use the distro fmt package instead of third_party/fmt.
+2.14 always add_subdirectory()'s the bundled copy; there is no
+USE_SYSTEM_FMT. System fmt 11.2 provides fmt::fmt-header-only,
+which is what Caffe2_DEPENDENCY_LIBS already links.
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -544,6 +544,7 @@
+ option(USE_SYSTEM_ONNX "Use system-provided onnx." OFF)
+ option(USE_SYSTEM_XNNPACK "Use system-provided xnnpack." OFF)
+ option(USE_SYSTEM_NVTX "Use system-provided nvtx." OFF)
++option(USE_SYSTEM_FMT "Use system-provided fmt." OFF)
+ option(USE_GOLD_LINKER "Use ld.gold to link" OFF)
+ if(USE_SYSTEM_LIBS)
+   set(USE_SYSTEM_CPUINFO ON)
+@@ -563,6 +564,7 @@
+     set(USE_SYSTEM_NCCL ON)
+   endif()
+   set(USE_SYSTEM_NVTX ON)
++  set(USE_SYSTEM_FMT ON)
+ endif()
+ 
+ # /Z7 override option When generating debug symbols, CMake default to use the
+--- a/cmake/Dependencies.cmake
++++ b/cmake/Dependencies.cmake
+@@ -1630,37 +1630,46 @@
+ # End ATen checks
+ #
+ 
+-# Install `fmtlib` header.
+-# This was the default behavior before version 12.0.0.
+-# Since PyTorch C API depends on it, make it available for projects that
+-# depend on PyTorch.
+-set(FMT_INSTALL ON)
+-set(TEMP_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
+-set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libs" FORCE)
+-add_subdirectory(${PROJECT_SOURCE_DIR}/third_party/fmt)
++if(USE_SYSTEM_FMT)
++  find_package(fmt REQUIRED)
++  if(NOT TARGET fmt::fmt-header-only)
++    message(FATAL_ERROR "system fmt does not provide fmt::fmt-header-only")
++  endif()
++  message(STATUS "Using system fmt ${fmt_VERSION}")
++  list(APPEND Caffe2_DEPENDENCY_LIBS fmt::fmt-header-only)
++else()
++  # Install `fmtlib` header.
++  # This was the default behavior before version 12.0.0.
++  # Since PyTorch C API depends on it, make it available for projects that
++  # depend on PyTorch.
++  set(FMT_INSTALL ON)
++  set(TEMP_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
++  set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libs" FORCE)
++  add_subdirectory(${PROJECT_SOURCE_DIR}/third_party/fmt)
+ 
+-# Disable compiler feature checks for `fmt`.
+-#
+-# CMake compiles a little program to check compiler features. Some of our build
+-# configurations (notably the mobile build analyzer) will populate
+-# CMAKE_CXX_FLAGS in ways that break feature checks. Since we already know
+-# `fmt` is compatible with a superset of the compilers that PyTorch is, it
+-# shouldn't be too bad to just disable the checks.
+-set_target_properties(fmt-header-only PROPERTIES INTERFACE_COMPILE_FEATURES "")
++  # Disable compiler feature checks for `fmt`.
++  #
++  # CMake compiles a little program to check compiler features. Some of our build
++  # configurations (notably the mobile build analyzer) will populate
++  # CMAKE_CXX_FLAGS in ways that break feature checks. Since we already know
++  # `fmt` is compatible with a superset of the compilers that PyTorch is, it
++  # shouldn't be too bad to just disable the checks.
++  set_target_properties(fmt-header-only PROPERTIES INTERFACE_COMPILE_FEATURES "")
+ 
+-# Keep fmt's header-only type layout stable across mixed C++ modes by forcing
+-# one no_unique_address spelling for all translation units.
+-if(MSVC AND NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+-  set(_fmt_no_unique_address "[[msvc::no_unique_address]]")
+-else()
+-  set(_fmt_no_unique_address "[[no_unique_address]]")
+-endif()
+-target_compile_definitions(fmt PUBLIC "FMT_NO_UNIQUE_ADDRESS=${_fmt_no_unique_address}")
+-target_compile_definitions(fmt-header-only INTERFACE "FMT_NO_UNIQUE_ADDRESS=${_fmt_no_unique_address}")
+-unset(_fmt_no_unique_address)
++  # Keep fmt's header-only type layout stable across mixed C++ modes by forcing
++  # one no_unique_address spelling for all translation units.
++  if(MSVC AND NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
++    set(_fmt_no_unique_address "[[msvc::no_unique_address]]")
++  else()
++    set(_fmt_no_unique_address "[[no_unique_address]]")
++  endif()
++  target_compile_definitions(fmt PUBLIC "FMT_NO_UNIQUE_ADDRESS=${_fmt_no_unique_address}")
++  target_compile_definitions(fmt-header-only INTERFACE "FMT_NO_UNIQUE_ADDRESS=${_fmt_no_unique_address}")
++  unset(_fmt_no_unique_address)
+ 
+-list(APPEND Caffe2_DEPENDENCY_LIBS fmt::fmt-header-only)
+-set(BUILD_SHARED_LIBS ${TEMP_BUILD_SHARED_LIBS} CACHE BOOL "Build shared libs" FORCE)
++  list(APPEND Caffe2_DEPENDENCY_LIBS fmt::fmt-header-only)
++  set(BUILD_SHARED_LIBS ${TEMP_BUILD_SHARED_LIBS} CACHE BOOL "Build shared libs" FORCE)
++endif()
+ 
+ # ---[ Kineto
+ # edge profiler depends on KinetoProfiler but it only does cpu

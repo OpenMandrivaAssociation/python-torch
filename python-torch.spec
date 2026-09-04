@@ -35,6 +35,8 @@ Patch2:		pytorch-2.14.0-no-aotriton-fetch.patch
 # HIP 7.15 reports as ROCm >= 7.14, so upstream requires hipfile.
 # OMV does not ship that early-access GPU-direct I/O library yet.
 Patch3:		pytorch-2.14.0-optional-hipfile.patch
+# 2.14 has no USE_SYSTEM_FMT; always builds third_party/fmt.
+Patch4:		pytorch-2.14.0-system-fmt.patch
 
 BuildRequires:	python
 # find_package(Python COMPONENTS Development.Module) — without
@@ -44,9 +46,6 @@ BuildRequires:	pkgconfig(python)
 BuildRequires:	cmake
 BuildRequires:	ninja
 BuildRequires:	binutils
-# CMake 4 + C++20 can enable P1689 module scanning for bundled fmt;
-# without this the ninja line is CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS-NOTFOUND.
-BuildRequires:	/usr/bin/clang-scan-deps
 # 2.14's PEP 517 backend is scikit-build-core (setup.py is a shim).
 BuildRequires:	python%{pyver}dist(scikit-build-core)
 BuildRequires:	python%{pyver}dist(setuptools)
@@ -62,6 +61,7 @@ BuildRequires:	python%{pyver}dist(networkx)
 BuildRequires:	python%{pyver}dist(sympy)
 BuildRequires:	python%{pyver}dist(fsspec)
 BuildRequires:	python%{pyver}dist(filelock)
+BuildRequires:	cmake(fmt)
 
 # TheRock 10.0 (FHS /usr, not /opt/rocm). HIP language/ABI is 7.15.
 BuildRequires:	hipcc
@@ -100,6 +100,9 @@ Requires:	python%{pyver}dist(jinja2)
 Requires:	python%{pyver}dist(networkx)
 Requires:	python%{pyver}dist(fsspec)
 Requires:	python%{pyver}dist(sympy)
+# c10 / torch.csrc headers include <fmt/...>; cpp_extension builds
+# need the system headers (we no longer install bundled fmt).
+Requires:	cmake(fmt)
 # HIP/Vulkan .so deps come from the ELF generator. Recommend the
 # pieces that are useful at runtime but not always DT_NEEDED.
 Recommends:	miopen%{?_isa}
@@ -175,6 +178,8 @@ export USE_MEM_EFF_ATTENTION=0
 # hipFile is not packaged; GPU-direct POSIX I/O is unused here.
 export USE_CUFILE=0
 export USE_HIPSPARSELT=0
+# Distro fmt 11 (fmt::fmt-header-only); skip third_party/fmt.
+export USE_SYSTEM_FMT=1
 # OMV ROCm is FHS, not /opt/rocm. hipcc / clang++ live in /usr/bin.
 export ROCM_PATH=%{_prefix}
 export HIP_CLANG_PATH=%{_bindir}
