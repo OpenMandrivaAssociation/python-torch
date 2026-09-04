@@ -138,7 +138,11 @@ off until that library is packaged.
 
 %build
 # HIP fat binaries × 10 gfx* are RAM-heavy.
+# MAX_JOBS is setup.py-era; 2.14's scikit-build-core runs
+# cmake --build, which honours CMAKE_BUILD_PARALLEL_LEVEL
+# (otherwise ninja uses every core and ABF x86_64 OOMs).
 export MAX_JOBS=4
+export CMAKE_BUILD_PARALLEL_LEVEL=4
 # HIP offload-bundler temps for 10 arches overflow a 32G /tmp tmpfs
 # ("No space left on device"). Keep scratch on the build disk.
 export TMPDIR=%{_builddir}/.torch-tmp
