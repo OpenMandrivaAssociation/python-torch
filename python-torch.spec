@@ -179,20 +179,30 @@ export HIP_DEVICE_LIB_PATH=%{_libdir}/amdgcn/bitcode
 export PYTORCH_ROCM_ARCH='%{torch_rocm_arch}'
 export CMAKE_FRESH=1
 # hipcub/rocthrust *-config.cmake hardcode ${prefix}/lib/cmake
-# (Fedora lib) instead of lib64. Shadow them with a tiny prefix
-# so PACKAGE_PREFIX_DIR/lib/cmake/... resolves.
+# (Fedora lib) instead of lib64. 2.14's EnvVarForwarding prepends
+# Python sys.prefix (/usr) onto CMAKE_PREFIX_PATH, so the system
+# /usr/lib64/cmake/hipcub/config wins and then dies looking for
+# /usr/lib/cmake/hipcub/targets. Force find_package onto a shadow
+# whose config includes the real lib64 targets file.
 _cmpre=%{_builddir}/rocm-prefix
 mkdir -p "$_cmpre/include"
 for pkg in hipcub rocthrust; do
-	mkdir -p "$_cmpre/lib/cmake/${pkg}" "$_cmpre/%{_lib}/cmake/${pkg}"
+	mkdir -p "$_cmpre/%{_lib}/cmake/${pkg}"
 	/bin/cp -f /usr/%{_lib}/cmake/${pkg}/${pkg}-config.cmake \
 		/usr/%{_lib}/cmake/${pkg}/${pkg}-config-version.cmake \
 		"$_cmpre/%{_lib}/cmake/${pkg}/"
 	for f in /usr/%{_lib}/cmake/${pkg}/${pkg}-targets*.cmake; do
 		[ -f "$f" ] || continue
-		ln -sfn "$f" "$_cmpre/lib/cmake/${pkg}/"
+		ln -sfn "$f" "$_cmpre/%{_lib}/cmake/${pkg}/"
 	done
+	sed -i -e "s|\${PACKAGE_PREFIX_DIR}/lib/cmake/${pkg}/|\${CMAKE_CURRENT_LIST_DIR}/|g" \
+		"$_cmpre/%{_lib}/cmake/${pkg}/${pkg}-config.cmake"
 done
+export hipcub_DIR="$_cmpre/%{_lib}/cmake/hipcub"
+export rocthrust_DIR="$_cmpre/%{_lib}/cmake/rocthrust"
+# scikit-build-core 1.0 prepends /usr via sys.prefix; CMAKE_ARGS
+# is the reliable way to pin PackageName_DIR past that.
+export CMAKE_ARGS="${CMAKE_ARGS:+$CMAKE_ARGS }-Dhipcub_DIR=$hipcub_DIR -Drocthrust_DIR=$rocthrust_DIR"
 ln -sfn %{_includedir}/hipcub "$_cmpre/include/hipcub"
 ln -sfn %{_includedir}/thrust "$_cmpre/include/thrust"
 ln -sfn %{_includedir}/rocprim "$_cmpre/include/rocprim"
