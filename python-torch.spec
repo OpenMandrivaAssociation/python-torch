@@ -103,7 +103,7 @@ Requires:	python%{pyver}dist(fsspec)
 Requires:	python%{pyver}dist(sympy)
 # c10 / torch.csrc headers include <fmt/...>; cpp_extension builds
 # need the system headers (we no longer install bundled fmt).
-Requires:	cmake(fmt)
+Requires:	cmake(fmt) >= 12
 # HIP/Vulkan .so deps come from the ELF generator. Recommend the
 # pieces that are useful at runtime but not always DT_NEEDED.
 Recommends:	miopen%{?_isa}
