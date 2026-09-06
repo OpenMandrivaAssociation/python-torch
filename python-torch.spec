@@ -16,7 +16,7 @@
 
 Name:		python-torch
 Version:	2.14.0
-Release:	1
+Release:	2
 Summary:	PyTorch machine learning framework
 License:	BSD-3-Clause
 Group:		Development/Python
@@ -24,6 +24,8 @@ URL:		https://pytorch.org
 # Full source bundle from the PyTorch project. The GitHub tag archive
 # omits third_party submodules needed to compile.
 Source0:	https://github.com/pytorch/pytorch/releases/download/v%{version}/pytorch-v%{version}.tar.gz
+# Walks every vendored CK copy (mslk / flash-attn / aiter) after Patch5.
+Source1:	pytorch-2.14.0-ck-clang23.py
 # LLD/mold: skip GNU-ld-only --stub-group-size; prioritized-text
 # uses --symbol-ordering-file instead of a BFD -T script.
 Patch0:		pytorch-2.14.0-lld-compat.patch
@@ -34,9 +36,13 @@ Patch1:		pytorch-2.14.0-optional-roctx.patch
 Patch2:		pytorch-2.14.0-no-aotriton-fetch.patch
 # HIP 7.15 reports as ROCm >= 7.14, so upstream requires hipfile.
 # OMV does not ship that early-access GPU-direct I/O library yet.
+# USE_CUFILE=1 below; this turns it back off when hipfile is missing.
 Patch3:		pytorch-2.14.0-optional-hipfile.patch
 # 2.14 has no USE_SYSTEM_FMT; always builds third_party/fmt.
 Patch4:		pytorch-2.14.0-system-fmt.patch
+# Clang 23 raw_buffer_* builtins are unsigned; CK still uses int32xN.
+# Same class of fix as python-xformers 0001-ck-tile-clang23-rdna.patch.
+Patch5:		pytorch-2.14.0-ck-clang23.patch
 
 BuildRequires:	python
 # find_package(Python COMPONENTS Development.Module) — without
@@ -90,6 +96,11 @@ BuildRequires:	cmake(rocm_smi)
 BuildRequires:	pkgconfig(libdrm)
 # c10d/symm_mem/intra_node_comm.cpp includes <amd_smi/amdsmi.h>
 BuildRequires:	cmake(amd_smi)
+# RCCL is the HIP NCCL. USE_RCCL depends on USE_NCCL; ROCm forces
+# USE_SYSTEM_NCCL and find_package(rccl).
+BuildRequires:	cmake(rccl)
+# c10d MPI backend. OpenMPI lives under %{_libdir}/openmpi, not PATH.
+BuildRequires:	pkgconfig(ompi-cxx)
 # ATen Vulkan (desktop): system loader + glslc for shader codegen.
 BuildRequires:	pkgconfig(vulkan)
 BuildRequires:	glslc
@@ -128,13 +139,18 @@ GPU:
   Vulkan 1.x driver exists). Not the Intel XPU/SYCL stack.
 CUDA is off. Flash-attention/AOTriton is off (it downloads
 prebuilt images; ABF has no network). LTO is off (libtorch
-link OOMs with full LTO on 64G builders). Bundled CK GEMM/
-SDPA/MSLK are off until Composable Kernel is fixed for
-Clang 23 vector builtin types. hipFile (GPU-direct I/O) is
-off until that library is packaged.
+link OOMs with full LTO on 64G builders). Distributed is
+on (Gloo + RCCL + MPI). Kineto (ROCm profiler) is on.
+Bundled CK GEMM/SDPA/MSLK are on (Clang 23 raw_buffer_*
+signedness patched). hipFile is not packaged: USE_CUFILE
+is requested and then turned off at configure if hipfile
+is missing.
 
 %prep
 %autosetup -C -n pytorch-v%{version} -p1
+# Patch5 covers third_party/composable_kernel. Other vendored CK
+# trees (mslk, flash-attn, aiter, fbgemm) get the same rewrite.
+python %{SOURCE1} .
 
 %build
 # HIP fat binaries × 10 gfx* are RAM-heavy.
@@ -155,33 +171,40 @@ export CXXFLAGS='%{torch_cflags}'
 # extension: CPython symbols resolve at import time, so LLD must
 # allow them. --allow-shlib-undefined is the inverse.
 export LDFLAGS="$(printf '%s' '%{?__global_ldflags}' | sed -e 's/-flto=thin//g' -e 's/-flto//g' -e 's/-Wl,--no-undefined//g' -e 's/--no-undefined//g') -Wl,--allow-shlib-undefined"
-export USE_DISTRIBUTED=0
+# OpenMPI wrappers are not on the default PATH.
+export PATH=%{_libdir}/openmpi/bin${PATH:+:$PATH}
+export MPI_HOME=%{_libdir}/openmpi
+export USE_DISTRIBUTED=1
+export USE_GLOO=1
+export USE_MPI=1
 export USE_MKLDNN=1
 export USE_NNPACK=0
 export USE_QNNPACK=0
 export USE_XNNPACK=1
 export USE_FBGEMM=0
-export USE_KINETO=0
+export USE_KINETO=1
 export BUILD_TEST=0
 export USE_ITT=0
 export USE_OBSERVERS=0
 export USE_CUDA=0
 export USE_CUDNN=0
-export USE_NCCL=0
-export USE_RCCL=0
+# NCCL is the API name; RCCL is the HIP implementation.
+# cmake_dependent_option(USE_RCCL) requires USE_NCCL.
+# ROCm then forces USE_SYSTEM_NCCL and find_package(rccl).
+export USE_NCCL=1
+export USE_SYSTEM_NCCL=1
+export USE_RCCL=1
 export USE_ROCM=1
 export USE_VULKAN=1
-# Bundled Composable Kernel headers break on Clang 23 signedness of
-# amdgcn vector builtins (int32xN vs unsigned). hipBLAS/MIOpen still
-# cover GEMM/conv; CK GEMM/SDPA/MSLK can return once CK is fixed.
-export USE_ROCM_CK_GEMM=0
-export USE_ROCM_CK_SDPA=0
-export USE_MSLK=0
+# Clang 23 signedness of raw_buffer_* is patched (Patch5 + Source1).
+export USE_ROCM_CK_GEMM=1
+export USE_ROCM_CK_SDPA=1
+export USE_MSLK=1
 # AOTriton is fetched from GitHub; builders are offline.
 export USE_FLASH_ATTENTION=0
 export USE_MEM_EFF_ATTENTION=0
-# hipFile is not packaged; GPU-direct POSIX I/O is unused here.
-export USE_CUFILE=0
+# Requested; Patch3 turns this off when hipfile is not installed.
+export USE_CUFILE=1
 export USE_HIPSPARSELT=0
 # Distro fmt 11 (fmt::fmt-header-only); skip third_party/fmt.
 export USE_SYSTEM_FMT=1

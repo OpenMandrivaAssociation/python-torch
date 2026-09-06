@@ -1,0 +1,378 @@
+Clang 23: raw_buffer_* builtins use unsigned vectors, not int32xN/float.
+
+Same class of fix as python-xformers 0001-ck-tile-clang23-rdna.patch.
+bit_cast load results; pass uint32 vectors to stores. Empty
+CK_TILE_HOST_DEVICE_EXTERN on clang >= 22 (deduction guides).
+bf16 storage as signed short.
+
+The %prep rewriter also walks the mslk / flash-attn / aiter copies.
+
+diff -u -N -r a/third_party/composable_kernel/include/ck/utility/amd_buffer_addressing_builtins.hpp b/third_party/composable_kernel/include/ck/utility/amd_buffer_addressing_builtins.hpp
+--- a/third_party/composable_kernel/include/ck/utility/amd_buffer_addressing_builtins.hpp
++++ b/third_party/composable_kernel/include/ck/utility/amd_buffer_addressing_builtins.hpp
+@@ -9,6 +9,10 @@
+ #endif
+ 
+ namespace ck {
++// Clang 23+ raw_buffer_* builtins take/return unsigned vectors.
++using uint32x2_t = uint32_t __attribute__((ext_vector_type(2)));
++using uint32x4_t = uint32_t __attribute__((ext_vector_type(4)));
++
+ 
+ template <typename T>
+ union BufferResource
+@@ -212,58 +216,57 @@
+ 
+     if constexpr(N == 1)
+     {
+-        return __builtin_amdgcn_raw_buffer_load_b8(src_wave_buffer_resource,
++        return bit_cast<int8_t>(__builtin_amdgcn_raw_buffer_load_b8(src_wave_buffer_resource,
+                                                    src_thread_addr_offset,
+                                                    src_wave_addr_offset,
+-                                                   static_cast<index_t>(coherence));
++                                                   static_cast<index_t>(coherence)));
+     }
+     else if constexpr(N == 2)
+     {
+ 
+-        int16_t tmp = __builtin_amdgcn_raw_buffer_load_b16(src_wave_buffer_resource,
++        int16_t tmp = bit_cast<int16_t>(__builtin_amdgcn_raw_buffer_load_b16(src_wave_buffer_resource,
+                                                            src_thread_addr_offset,
+                                                            src_wave_addr_offset,
+-                                                           static_cast<index_t>(coherence));
++                                                           static_cast<index_t>(coherence)));
+ 
+         return bit_cast<int8x2_t>(tmp);
+     }
+     else if constexpr(N == 4)
+     {
+-        int32_t tmp = __builtin_amdgcn_raw_buffer_load_b32(src_wave_buffer_resource,
++        int32_t tmp = bit_cast<int32_t>(__builtin_amdgcn_raw_buffer_load_b32(src_wave_buffer_resource,
+                                                            src_thread_addr_offset,
+                                                            src_wave_addr_offset,
+-                                                           static_cast<index_t>(coherence));
++                                                           static_cast<index_t>(coherence)));
+ 
+         return bit_cast<int8x4_t>(tmp);
+     }
+     else if constexpr(N == 8)
+     {
+-        int32x2_t tmp = __builtin_amdgcn_raw_buffer_load_b64(src_wave_buffer_resource,
++        int32x2_t tmp = bit_cast<int32x2_t>(__builtin_amdgcn_raw_buffer_load_b64(src_wave_buffer_resource,
+                                                              src_thread_addr_offset,
+                                                              src_wave_addr_offset,
+-                                                             static_cast<index_t>(coherence));
++                                                             static_cast<index_t>(coherence)));
+ 
+         return bit_cast<int8x8_t>(tmp);
+     }
+     else if constexpr(N == 16)
+     {
+-        int32x4_t tmp = __builtin_amdgcn_raw_buffer_load_b128(src_wave_buffer_resource,
++        int32x4_t tmp = bit_cast<int32x4_t>(__builtin_amdgcn_raw_buffer_load_b128(src_wave_buffer_resource,
+                                                               src_thread_addr_offset,
+                                                               src_wave_addr_offset,
+-                                                              static_cast<index_t>(coherence));
++                                                              static_cast<index_t>(coherence)));
+         return bit_cast<int8x16_t>(tmp);
+     }
+     else if constexpr(N == 32)
+     {
+-        int32x4_t tmp0 = __builtin_amdgcn_raw_buffer_load_b128(src_wave_buffer_resource,
++        int32x4_t tmp0 = bit_cast<int32x4_t>(__builtin_amdgcn_raw_buffer_load_b128(src_wave_buffer_resource,
+                                                                src_thread_addr_offset,
+                                                                src_wave_addr_offset,
+-                                                               static_cast<index_t>(coherence));
+-        int32x4_t tmp1 =
+-            __builtin_amdgcn_raw_buffer_load_b128(src_wave_buffer_resource,
++                                                               static_cast<index_t>(coherence)));
++        int32x4_t tmp1 = bit_cast<int32x4_t>(__builtin_amdgcn_raw_buffer_load_b128(src_wave_buffer_resource,
+                                                   src_thread_addr_offset,
+                                                   src_wave_addr_offset + 4 * sizeof(int32_t),
+-                                                  static_cast<index_t>(coherence));
++                                                  static_cast<index_t>(coherence)));
+         vector_type<int32_t, 8> tmp;
+ 
+         tmp.AsType<int32x4_t>()(Number<0>{}) = tmp0;
+@@ -273,25 +276,22 @@
+     }
+     else if constexpr(N == 64)
+     {
+-        int32x4_t tmp0 = __builtin_amdgcn_raw_buffer_load_b128(src_wave_buffer_resource,
++        int32x4_t tmp0 = bit_cast<int32x4_t>(__builtin_amdgcn_raw_buffer_load_b128(src_wave_buffer_resource,
+                                                                src_thread_addr_offset,
+                                                                src_wave_addr_offset,
+-                                                               static_cast<index_t>(coherence));
+-        int32x4_t tmp1 =
+-            __builtin_amdgcn_raw_buffer_load_b128(src_wave_buffer_resource,
++                                                               static_cast<index_t>(coherence)));
++        int32x4_t tmp1 = bit_cast<int32x4_t>(__builtin_amdgcn_raw_buffer_load_b128(src_wave_buffer_resource,
+                                                   src_thread_addr_offset,
+                                                   src_wave_addr_offset + 4 * sizeof(int32_t),
+-                                                  static_cast<index_t>(coherence));
+-        int32x4_t tmp2 =
+-            __builtin_amdgcn_raw_buffer_load_b128(src_wave_buffer_resource,
++                                                  static_cast<index_t>(coherence)));
++        int32x4_t tmp2 = bit_cast<int32x4_t>(__builtin_amdgcn_raw_buffer_load_b128(src_wave_buffer_resource,
+                                                   src_thread_addr_offset,
+                                                   src_wave_addr_offset + 8 * sizeof(int32_t),
+-                                                  static_cast<index_t>(coherence));
+-        int32x4_t tmp3 =
+-            __builtin_amdgcn_raw_buffer_load_b128(src_wave_buffer_resource,
++                                                  static_cast<index_t>(coherence)));
++        int32x4_t tmp3 = bit_cast<int32x4_t>(__builtin_amdgcn_raw_buffer_load_b128(src_wave_buffer_resource,
+                                                   src_thread_addr_offset,
+                                                   src_wave_addr_offset + 12 * sizeof(int32_t),
+-                                                  static_cast<index_t>(coherence));
++                                                  static_cast<index_t>(coherence)));
+ 
+         vector_type<int32_t, 16> tmp;
+ 
+@@ -348,7 +348,7 @@
+ 
+     if constexpr(N == 1)
+     {
+-        __builtin_amdgcn_raw_buffer_store_b8(src_thread_data,
++        __builtin_amdgcn_raw_buffer_store_b8(bit_cast<uint8_t>(src_thread_data),
+                                              dst_wave_buffer_resource,
+                                              dst_thread_addr_offset,
+                                              dst_wave_addr_offset,
+@@ -357,7 +357,7 @@
+     else if constexpr(N == 2)
+     {
+ 
+-        __builtin_amdgcn_raw_buffer_store_b16(bit_cast<int16_t>(src_thread_data),
++        __builtin_amdgcn_raw_buffer_store_b16(bit_cast<uint16_t>(src_thread_data),
+                                               dst_wave_buffer_resource,
+                                               dst_thread_addr_offset,
+                                               dst_wave_addr_offset,
+@@ -365,7 +365,7 @@
+     }
+     else if constexpr(N == 4)
+     {
+-        __builtin_amdgcn_raw_buffer_store_b32(bit_cast<int32_t>(src_thread_data),
++        __builtin_amdgcn_raw_buffer_store_b32(bit_cast<uint32_t>(src_thread_data),
+                                               dst_wave_buffer_resource,
+                                               dst_thread_addr_offset,
+                                               dst_wave_addr_offset,
+@@ -373,7 +373,7 @@
+     }
+     else if constexpr(N == 8)
+     {
+-        __builtin_amdgcn_raw_buffer_store_b64(bit_cast<int32x2_t>(src_thread_data),
++        __builtin_amdgcn_raw_buffer_store_b64(bit_cast<uint32x2_t>(src_thread_data),
+                                               dst_wave_buffer_resource,
+                                               dst_thread_addr_offset,
+                                               dst_wave_addr_offset,
+@@ -381,7 +381,7 @@
+     }
+     else if constexpr(N == 16)
+     {
+-        __builtin_amdgcn_raw_buffer_store_b128(bit_cast<int32x4_t>(src_thread_data),
++        __builtin_amdgcn_raw_buffer_store_b128(bit_cast<uint32x4_t>(src_thread_data),
+                                                dst_wave_buffer_resource,
+                                                dst_thread_addr_offset,
+                                                dst_wave_addr_offset,
+@@ -391,13 +391,13 @@
+     {
+         vector_type<int32_t, 8> tmp{bit_cast<int32x8_t>(src_thread_data)};
+ 
+-        __builtin_amdgcn_raw_buffer_store_b128(tmp.template AsType<int32x4_t>()[Number<0>{}],
++        __builtin_amdgcn_raw_buffer_store_b128(bit_cast<uint32x4_t>(tmp.template AsType<int32x4_t>()[Number<0>{}]),
+                                                dst_wave_buffer_resource,
+                                                dst_thread_addr_offset,
+                                                dst_wave_addr_offset,
+                                                static_cast<index_t>(coherence));
+ 
+-        __builtin_amdgcn_raw_buffer_store_b128(tmp.template AsType<int32x4_t>()[Number<1>{}],
++        __builtin_amdgcn_raw_buffer_store_b128(bit_cast<uint32x4_t>(tmp.template AsType<int32x4_t>()[Number<1>{}]),
+                                                dst_wave_buffer_resource,
+                                                dst_thread_addr_offset,
+                                                dst_wave_addr_offset + sizeof(int32_t) * 4,
+@@ -407,25 +407,25 @@
+     {
+         vector_type<int32_t, 16> tmp{bit_cast<int32x16_t>(src_thread_data)};
+ 
+-        __builtin_amdgcn_raw_buffer_store_b128(tmp.template AsType<int32x4_t>()[Number<0>{}],
++        __builtin_amdgcn_raw_buffer_store_b128(bit_cast<uint32x4_t>(tmp.template AsType<int32x4_t>()[Number<0>{}]),
+                                                dst_wave_buffer_resource,
+                                                dst_thread_addr_offset,
+                                                dst_wave_addr_offset,
+                                                static_cast<index_t>(coherence));
+ 
+-        __builtin_amdgcn_raw_buffer_store_b128(tmp.template AsType<int32x4_t>()[Number<1>{}],
++        __builtin_amdgcn_raw_buffer_store_b128(bit_cast<uint32x4_t>(tmp.template AsType<int32x4_t>()[Number<1>{}]),
+                                                dst_wave_buffer_resource,
+                                                dst_thread_addr_offset,
+                                                dst_wave_addr_offset + sizeof(int32_t) * 4,
+                                                static_cast<index_t>(coherence));
+ 
+-        __builtin_amdgcn_raw_buffer_store_b128(tmp.template AsType<int32x4_t>()[Number<2>{}],
++        __builtin_amdgcn_raw_buffer_store_b128(bit_cast<uint32x4_t>(tmp.template AsType<int32x4_t>()[Number<2>{}]),
+                                                dst_wave_buffer_resource,
+                                                dst_thread_addr_offset,
+                                                dst_wave_addr_offset + sizeof(int32_t) * 8,
+                                                static_cast<index_t>(coherence));
+ 
+-        __builtin_amdgcn_raw_buffer_store_b128(tmp.template AsType<int32x4_t>()[Number<3>{}],
++        __builtin_amdgcn_raw_buffer_store_b128(bit_cast<uint32x4_t>(tmp.template AsType<int32x4_t>()[Number<3>{}]),
+                                                dst_wave_buffer_resource,
+                                                dst_thread_addr_offset,
+                                                dst_wave_addr_offset + sizeof(int32_t) * 12,
+diff -u -N -r a/third_party/composable_kernel/include/ck_tile/core/arch/amd_buffer_addressing.hpp b/third_party/composable_kernel/include/ck_tile/core/arch/amd_buffer_addressing.hpp
+--- a/third_party/composable_kernel/include/ck_tile/core/arch/amd_buffer_addressing.hpp
++++ b/third_party/composable_kernel/include/ck_tile/core/arch/amd_buffer_addressing.hpp
+@@ -157,8 +157,8 @@
+         using mbuf_t = typename impl::buffer_load_trait<16, T>::payload_t;
+ #if HAS_RAW_BUFFER_BUILTINS
+         index_t s_offset                 = i_offset;
+-        reinterpret_cast<mbuf_t&>(value) = __builtin_amdgcn_raw_buffer_load_b128(
+-            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0);
++        reinterpret_cast<mbuf_t&>(value) = bit_cast<mbuf_t>(__builtin_amdgcn_raw_buffer_load_b128(
++            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0));
+ #else
+         if constexpr(pre_nop)
+             asm volatile("s_nop 4\n"
+@@ -191,8 +191,8 @@
+         using mbuf_t = typename impl::buffer_load_trait<8, T>::payload_t;
+ #if HAS_RAW_BUFFER_BUILTINS
+         index_t s_offset                 = i_offset;
+-        reinterpret_cast<mbuf_t&>(value) = __builtin_amdgcn_raw_buffer_load_b64(
+-            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0);
++        reinterpret_cast<mbuf_t&>(value) = bit_cast<mbuf_t>(__builtin_amdgcn_raw_buffer_load_b64(
++            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0));
+ #else
+         if constexpr(pre_nop)
+             asm volatile("s_nop 4\n"
+@@ -226,8 +226,8 @@
+ 
+ #if HAS_RAW_BUFFER_BUILTINS
+         index_t s_offset                 = i_offset;
+-        reinterpret_cast<mbuf_t&>(value) = __builtin_amdgcn_raw_buffer_load_b32(
+-            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0);
++        reinterpret_cast<mbuf_t&>(value) = bit_cast<mbuf_t>(__builtin_amdgcn_raw_buffer_load_b32(
++            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0));
+ #else
+         if constexpr(pre_nop)
+             asm volatile("s_nop 4\n"
+@@ -261,8 +261,8 @@
+ 
+ #if HAS_RAW_BUFFER_BUILTINS
+         index_t s_offset                 = i_offset;
+-        reinterpret_cast<mbuf_t&>(value) = __builtin_amdgcn_raw_buffer_load_b16(
+-            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0);
++        reinterpret_cast<mbuf_t&>(value) = bit_cast<mbuf_t>(static_cast<uint32_t>(__builtin_amdgcn_raw_buffer_load_b16(
++            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0)));
+ #else
+         if constexpr(pre_nop)
+             asm volatile("s_nop 4\n"
+@@ -295,8 +295,8 @@
+         using mbuf_t = typename impl::buffer_load_trait<1, T>::payload_t;
+ #if HAS_RAW_BUFFER_BUILTINS
+         index_t s_offset                 = i_offset;
+-        reinterpret_cast<mbuf_t&>(value) = __builtin_amdgcn_raw_buffer_load_b16(
+-            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0);
++        reinterpret_cast<mbuf_t&>(value) = bit_cast<mbuf_t>(static_cast<uint32_t>(__builtin_amdgcn_raw_buffer_load_b16(
++            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0)));
+ #else
+         if constexpr(pre_nop)
+             asm volatile("s_nop 4\n"
+diff -u -N -r a/third_party/composable_kernel/include/ck_tile/core/arch/amd_buffer_addressing_builtins.hpp b/third_party/composable_kernel/include/ck_tile/core/arch/amd_buffer_addressing_builtins.hpp
+--- a/third_party/composable_kernel/include/ck_tile/core/arch/amd_buffer_addressing_builtins.hpp
++++ b/third_party/composable_kernel/include/ck_tile/core/arch/amd_buffer_addressing_builtins.hpp
+@@ -178,8 +178,8 @@
+         using mbuf_t = typename impl::buffer_load_trait<16, T>::payload_t;
+ #if HAS_RAW_BUFFER_BUILTINS
+         index_t s_offset                 = i_offset;
+-        reinterpret_cast<mbuf_t&>(value) = __builtin_amdgcn_raw_buffer_load_b128(
+-            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0);
++        reinterpret_cast<mbuf_t&>(value) = bit_cast<mbuf_t>(__builtin_amdgcn_raw_buffer_load_b128(
++            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0));
+ #else
+         if constexpr(pre_nop)
+             asm volatile("s_nop 4\n"
+@@ -212,8 +212,8 @@
+         using mbuf_t = typename impl::buffer_load_trait<8, T>::payload_t;
+ #if HAS_RAW_BUFFER_BUILTINS
+         index_t s_offset                 = i_offset;
+-        reinterpret_cast<mbuf_t&>(value) = __builtin_amdgcn_raw_buffer_load_b64(
+-            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0);
++        reinterpret_cast<mbuf_t&>(value) = bit_cast<mbuf_t>(__builtin_amdgcn_raw_buffer_load_b64(
++            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0));
+ #else
+         if constexpr(pre_nop)
+             asm volatile("s_nop 4\n"
+@@ -247,8 +247,8 @@
+ 
+ #if HAS_RAW_BUFFER_BUILTINS
+         index_t s_offset                 = i_offset;
+-        reinterpret_cast<mbuf_t&>(value) = __builtin_amdgcn_raw_buffer_load_b32(
+-            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0);
++        reinterpret_cast<mbuf_t&>(value) = bit_cast<mbuf_t>(__builtin_amdgcn_raw_buffer_load_b32(
++            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0));
+ #else
+         if constexpr(pre_nop)
+             asm volatile("s_nop 4\n"
+@@ -282,8 +282,8 @@
+ 
+ #if HAS_RAW_BUFFER_BUILTINS
+         index_t s_offset                 = i_offset;
+-        reinterpret_cast<mbuf_t&>(value) = __builtin_amdgcn_raw_buffer_load_b16(
+-            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0);
++        reinterpret_cast<mbuf_t&>(value) = bit_cast<mbuf_t>(static_cast<uint32_t>(__builtin_amdgcn_raw_buffer_load_b16(
++            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0)));
+ #else
+         if constexpr(pre_nop)
+             asm volatile("s_nop 4\n"
+@@ -316,8 +316,8 @@
+         using mbuf_t = typename impl::buffer_load_trait<1, T>::payload_t;
+ #if HAS_RAW_BUFFER_BUILTINS
+         index_t s_offset                 = i_offset;
+-        reinterpret_cast<mbuf_t&>(value) = __builtin_amdgcn_raw_buffer_load_b16(
+-            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0);
++        reinterpret_cast<mbuf_t&>(value) = bit_cast<mbuf_t>(static_cast<uint32_t>(__builtin_amdgcn_raw_buffer_load_b16(
++            cast_to_amdgpu_buffer_rsrc_t(res), v_offset, s_offset, 0)));
+ #else
+         if constexpr(pre_nop)
+             asm volatile("s_nop 4\n"
+diff -u -N -r a/third_party/composable_kernel/include/ck_tile/core/config.hpp b/third_party/composable_kernel/include/ck_tile/core/config.hpp
+--- a/third_party/composable_kernel/include/ck_tile/core/config.hpp
++++ b/third_party/composable_kernel/include/ck_tile/core/config.hpp
+@@ -55,8 +55,12 @@
+ #define CK_TILE_DEVICE inline __device__
+ #define CK_TILE_HOST_DEVICE inline __host__ __device__
+ #define CK_TILE_DEVICE_EXTERN __device__
++#if __clang_major__ < 22
+ #define CK_TILE_HOST_DEVICE_EXTERN __host__ __device__
+ #else
++#define CK_TILE_HOST_DEVICE_EXTERN
++#endif
++#else
+ #define CK_TILE_HOST inline
+ #define CK_TILE_DEVICE inline
+ #define CK_TILE_HOST_DEVICE inline
+diff -u -N -r a/third_party/composable_kernel/include/ck_tile/core/numeric/bfloat16.hpp b/third_party/composable_kernel/include/ck_tile/core/numeric/bfloat16.hpp
+--- a/third_party/composable_kernel/include/ck_tile/core/numeric/bfloat16.hpp
++++ b/third_party/composable_kernel/include/ck_tile/core/numeric/bfloat16.hpp
+@@ -104,7 +104,7 @@
+ template <>
+ struct native_t<bfloat16_t>
+ {
+-    using type = ushort;
++    using type = short;
+ };
+ using bf16_t     = bfloat16_t;
+ using bf16_raw_t = typename bf16_t::raw_type;
+@@ -112,10 +112,10 @@
+ #if CK_TILE_USE_LLVM_BUILTIN_BF16
+ using bfloat16_t = __bf16;
+ #else
+-using bfloat16_t = ushort;
++using bfloat16_t = short;
+ #endif
+ using bf16_t     = bfloat16_t;
+-using bf16_raw_t = uint16_t;
++using bf16_raw_t = short;
+ #endif
+ // round to nearest
+ CK_TILE_HOST_DEVICE
