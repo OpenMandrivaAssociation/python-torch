@@ -15,8 +15,8 @@
 %global torch_rocm_arch gfx906;gfx908;gfx90a;gfx942;gfx1030;gfx1100;gfx1101;gfx1102;gfx1200;gfx1201
 
 Name:		python-torch
-Version:	2.14.0
-Release:	2
+Version:	2.14.1
+Release:	1
 Summary:	PyTorch machine learning framework
 License:	BSD-3-Clause
 Group:		Development/Python
