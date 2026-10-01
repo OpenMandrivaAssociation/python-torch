@@ -237,6 +237,13 @@ for pkg in hipcub rocthrust rccl; do
 	sed -i -e "s|\${PACKAGE_PREFIX_DIR}/lib/cmake/${pkg}/|\${CMAKE_CURRENT_LIST_DIR}/|g" \
 		"$_cmpre/%{_lib}/cmake/${pkg}/${pkg}-config.cmake"
 done
+# rccl-targets.cmake sets IMPORTED_LOCATION to ${_IMPORT_PREFIX}/lib/librccl.so.*.
+# The shadow makes that prefix rocm-prefix, and the real library is in lib64.
+mkdir -p "$_cmpre/lib"
+for so in %{_libdir}/librccl.so*; do
+	[ -e "$so" ] || continue
+	ln -sfn "$so" "$_cmpre/lib/${so##*/}"
+done
 export hipcub_DIR="$_cmpre/%{_lib}/cmake/hipcub"
 export rocthrust_DIR="$_cmpre/%{_lib}/cmake/rocthrust"
 export rccl_DIR="$_cmpre/%{_lib}/cmake/rccl"
