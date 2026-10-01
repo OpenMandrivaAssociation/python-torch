@@ -214,7 +214,7 @@ export HIP_CLANG_PATH=%{_bindir}
 export HIP_DEVICE_LIB_PATH=%{_libdir}/amdgcn/bitcode
 export PYTORCH_ROCM_ARCH='%{torch_rocm_arch}'
 export CMAKE_FRESH=1
-# hipcub/rocthrust *-config.cmake hardcode ${prefix}/lib/cmake
+# hipcub/rocthrust/rccl *-config.cmake hardcode ${prefix}/lib/cmake
 # (Fedora lib) instead of lib64. 2.14's EnvVarForwarding prepends
 # Python sys.prefix (/usr) onto CMAKE_PREFIX_PATH, so the system
 # /usr/lib64/cmake/hipcub/config wins and then dies looking for
@@ -222,7 +222,7 @@ export CMAKE_FRESH=1
 # whose config includes the real lib64 targets file.
 _cmpre=%{_builddir}/rocm-prefix
 mkdir -p "$_cmpre/include"
-for pkg in hipcub rocthrust; do
+for pkg in hipcub rocthrust rccl; do
 	mkdir -p "$_cmpre/%{_lib}/cmake/${pkg}"
 	/bin/cp -f /usr/%{_lib}/cmake/${pkg}/${pkg}-config.cmake \
 		/usr/%{_lib}/cmake/${pkg}/${pkg}-config-version.cmake \
@@ -236,9 +236,10 @@ for pkg in hipcub rocthrust; do
 done
 export hipcub_DIR="$_cmpre/%{_lib}/cmake/hipcub"
 export rocthrust_DIR="$_cmpre/%{_lib}/cmake/rocthrust"
+export rccl_DIR="$_cmpre/%{_lib}/cmake/rccl"
 # scikit-build-core 1.0 prepends /usr via sys.prefix; CMAKE_ARGS
 # is the reliable way to pin PackageName_DIR past that.
-export CMAKE_ARGS="${CMAKE_ARGS:+$CMAKE_ARGS }-Dhipcub_DIR=$hipcub_DIR -Drocthrust_DIR=$rocthrust_DIR -DCMAKE_CXX_SCAN_FOR_MODULES=OFF"
+export CMAKE_ARGS="${CMAKE_ARGS:+$CMAKE_ARGS }-Dhipcub_DIR=$hipcub_DIR -Drocthrust_DIR=$rocthrust_DIR -Drccl_DIR=$rccl_DIR -DCMAKE_CXX_SCAN_FOR_MODULES=OFF"
 ln -sfn %{_includedir}/hipcub "$_cmpre/include/hipcub"
 ln -sfn %{_includedir}/thrust "$_cmpre/include/thrust"
 ln -sfn %{_includedir}/rocprim "$_cmpre/include/rocprim"
