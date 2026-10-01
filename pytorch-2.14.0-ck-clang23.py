@@ -167,6 +167,65 @@ def fix_ck_tile_config(text: str) -> str:
     return text.replace(old, new, 1)
 
 
+def _svec(n: int) -> str:
+    return f"bit_cast<short __attribute__((ext_vector_type({n})))>"
+
+
+def fix_bf16_mma(text: str) -> str:
+    """Clang 23's older bf16 MFMA/WMMA/SMFMAC builtins take short vectors.
+
+    CK passes bhalfN_t, which is a __bf16 vector when LLVM bf16 is on.
+    gfx950 builtins (type code 'y') already take __bf16 and are left alone.
+    """
+    # Result and accumulator are short vectors too.
+    for builtin, src_n, acc, acc_n in (
+        ("__builtin_amdgcn_wmma_bf16_16x16x16_bf16_w32", 16, "bhalf16_t", 16),
+        ("__builtin_amdgcn_wmma_bf16_16x16x16_bf16_w64", 16, "bhalf8_t", 8),
+    ):
+        src, accs = _svec(src_n), _svec(acc_n)
+        pat = re.compile(
+            rf"reg_c\.template AsType<{acc}>\(\)\(Number<0>\{{}}\) =\s*"
+            rf"{re.escape(builtin)}\(\s*"
+            rf"reg_a, reg_b, reg_c\.template AsType<{acc}>\(\)\[Number<0>\{{}}\], Opsel\);"
+        )
+        repl = (
+            f"reg_c.template AsType<{acc}>()(Number<0>{{}}) = "
+            f"bit_cast<{acc}>({builtin}(\n"
+            f"                {src}(reg_a), {src}(reg_b), "
+            f"{accs}(reg_c.template AsType<{acc}>()[Number<0>{{}}]), Opsel));"
+        )
+        text = pat.sub(repl, text)
+    # Float result; only the bf16 sources are short vectors of one width.
+    same = {
+        "__builtin_amdgcn_mfma_f32_16x16x8bf16": 2,
+        "__builtin_amdgcn_mfma_f32_32x32x4bf16": 2,
+        "__builtin_amdgcn_mfma_f32_16x16x16bf16_1k": 4,
+        "__builtin_amdgcn_mfma_f32_32x32x8bf16_1k": 4,
+        "__builtin_amdgcn_wmma_f32_16x16x16_bf16_w32": 16,
+        "__builtin_amdgcn_wmma_f32_16x16x16_bf16_w64": 16,
+        "__builtin_amdgcn_wmma_f32_16x16x16_bf16_w32_gfx12": 8,
+        "__builtin_amdgcn_wmma_f32_16x16x16_bf16_w64_gfx12": 4,
+    }
+    for name, n in same.items():
+        cast = _svec(n)
+        text = re.sub(
+            rf"({re.escape(name)}\(\s*)reg_a, reg_b,",
+            rf"\1{cast}(reg_a), {cast}(reg_b),",
+            text,
+        )
+    # gfx940 SMFMAC: A is short4, B is short8.
+    for name in (
+        "__builtin_amdgcn_smfmac_f32_16x16x32_bf16",
+        "__builtin_amdgcn_smfmac_f32_32x32x16_bf16",
+    ):
+        text = re.sub(
+            rf"({re.escape(name)}\(\s*)reg_a, reg_b,",
+            rf"\1{_svec(4)}(reg_a), {_svec(8)}(reg_b),",
+            text,
+        )
+    return text
+
+
 def fix_bfloat16(text: str) -> str:
     # Clang 23 vector builtins want signed short, not ushort.
     text = text.replace("using type = ushort;", "using type = short;")
@@ -202,6 +261,8 @@ def process(root: Path) -> int:
             text = fix_ck_tile_config(text)
         elif name == "bfloat16.hpp" and "/ck_tile/" in rel:
             text = fix_bfloat16(text)
+        elif name in ("amd_xdlops.hpp", "amd_wmma.hpp", "amd_smfmac.hpp"):
+            text = fix_bf16_mma(text)
         else:
             continue
         if text != orig:
