@@ -99,6 +99,9 @@ BuildRequires:	cmake(amd_smi)
 # RCCL is the HIP NCCL. USE_RCCL depends on USE_NCCL; ROCm forces
 # USE_SYSTEM_NCCL and find_package(rccl).
 BuildRequires:	cmake(rccl)
+# Kineto on ROCm 7 links librocprofiler-sdk. The .so lives in lib64;
+# find_library still searches the default lib dirs.
+BuildRequires:	cmake(rocprofiler-sdk)
 # c10d MPI backend. OpenMPI lives under %{_libdir}/openmpi, not PATH.
 BuildRequires:	pkgconfig(ompi-cxx)
 # ATen Vulkan (desktop): system loader + glslc for shader codegen.
