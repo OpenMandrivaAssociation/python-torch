@@ -239,7 +239,11 @@ export rocthrust_DIR="$_cmpre/%{_lib}/cmake/rocthrust"
 export rccl_DIR="$_cmpre/%{_lib}/cmake/rccl"
 # scikit-build-core 1.0 prepends /usr via sys.prefix; CMAKE_ARGS
 # is the reliable way to pin PackageName_DIR past that.
-export CMAKE_ARGS="${CMAKE_ARGS:+$CMAKE_ARGS }-Dhipcub_DIR=$hipcub_DIR -Drocthrust_DIR=$rocthrust_DIR -Drccl_DIR=$rccl_DIR -DCMAKE_CXX_SCAN_FOR_MODULES=OFF"
+# LoadHIP caches ROCM_VERSION_HEADER_PATH at hip/hip_version.h
+# (HIP_VERSION_*). Kineto reuses that cache and only accepts
+# ROCM_VERSION_*, so pin it to the stub below.
+export ROCM_VERSION_HEADER_PATH="$_cmpre/include/rocm-core/rocm_version.h"
+export CMAKE_ARGS="${CMAKE_ARGS:+$CMAKE_ARGS }-Dhipcub_DIR=$hipcub_DIR -Drocthrust_DIR=$rocthrust_DIR -Drccl_DIR=$rccl_DIR -DROCM_VERSION_HEADER_PATH=$ROCM_VERSION_HEADER_PATH -DCMAKE_CXX_SCAN_FOR_MODULES=OFF"
 ln -sfn %{_includedir}/hipcub "$_cmpre/include/hipcub"
 ln -sfn %{_includedir}/thrust "$_cmpre/include/thrust"
 ln -sfn %{_includedir}/rocprim "$_cmpre/include/rocprim"
