@@ -225,16 +225,10 @@ export CMAKE_FRESH=1
 # whose config includes the real lib64 targets file.
 _cmpre=%{_builddir}/rocm-prefix
 mkdir -p "$_cmpre/include"
-# Hipify rewrites nvToolsExt.h to roctracer/roctx.h and the unsuffixed
-# nvtxMark/nvtxRangePush/nvtxRangeStart names. ROCTx now lives in
-# rocprofiler-sdk-roctx, which only has the *A entry points.
+# Hipify rewrites nvToolsExt.h to roctracer/roctx.h. ROCTx now lives in
+# rocprofiler-sdk-roctx/roctx.h, which already macros the unsuffixed names.
 mkdir -p "$_cmpre/include/roctracer"
-cat > "$_cmpre/include/roctracer/roctx.h" <<'EOF'
-#include <rocprofiler-sdk-roctx/roctx.h>
-static inline void roctxMark(const char* message) { roctxMarkA(message); }
-static inline int roctxRangePush(const char* message) { return roctxRangePushA(message); }
-static inline roctx_range_id_t roctxRangeStart(const char* message) { return roctxRangeStartA(message); }
-EOF
+printf '%s\n' '#include <rocprofiler-sdk-roctx/roctx.h>' > "$_cmpre/include/roctracer/roctx.h"
 for pkg in hipcub rocthrust rccl; do
 	mkdir -p "$_cmpre/%{_lib}/cmake/${pkg}"
 	/bin/cp -f /usr/%{_lib}/cmake/${pkg}/${pkg}-config.cmake \
