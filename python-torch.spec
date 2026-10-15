@@ -16,7 +16,7 @@
 
 Name:		python-torch
 Version:	2.14.1
-Release:	1
+Release:	2
 Summary:	PyTorch machine learning framework
 License:	BSD-3-Clause
 Group:		Development/Python
@@ -48,7 +48,7 @@ BuildRequires:	python
 # find_package(Python COMPONENTS Development.Module) — without
 # this cmake silently sets BUILD_PYTHON=OFF and the wheel has no
 # torch/_C*.so (xformers 656372: Failed to load PyTorch C extensions).
-BuildRequires:	pkgconfig(python)
+BuildRequires:	pkgconfig(python3)
 BuildRequires:	cmake
 BuildRequires:	ninja
 BuildRequires:	binutils
