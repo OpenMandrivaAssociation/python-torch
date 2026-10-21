@@ -1,0 +1,42 @@
+Do not pass -L/usr/lib when building HIP extensions.
+
+ROCm's own prefix keeps libraries in $ROCM_HOME/lib. On an FHS install
+ROCM_HOME is /usr, so that path is the 32-bit multilib directory.
+/usr/lib/libc.so is a linker script with OUTPUT_FORMAT(elf32-i386);
+ld.lld applies it and then rejects every 64-bit object. The 64-bit
+libraries are already on the default linker search path.
+
+HIP_HOME is $ROCM_HOME/hip (/usr/hip here), so the same guard has to
+cover ROCM_HOME itself. Skip both when the prefix is /usr.
+
+--- a/torch/utils/cpp_extension.py
++++ b/torch/utils/cpp_extension.py
+@@ -1786,9 +1786,13 @@ def library_paths(device_type: str = "cpu", torch_include_dirs: bool = True, cr
+         paths.extend([TORCH_LIB_PATH])
+ 
+     if device_type == "cuda" and IS_HIP_EXTENSION:
+-        lib_dir = 'lib'
+-        paths.append(_join_rocm_home(lib_dir))
+-        if HIP_HOME is not None:
++        # /opt/rocm keeps its libraries in $ROCM_HOME/lib. When ROCm is
++        # installed into /usr, that directory is the 32-bit multilib dir.
++        # /usr/lib is already on the linker search path, and adding it
++        # selects /usr/lib/libc.so (OUTPUT_FORMAT(elf32-i386)).
++        if ROCM_HOME != '/usr':
++            paths.append(_join_rocm_home('lib'))
++        if HIP_HOME is not None and HIP_HOME != '/usr':
+             paths.append(os.path.join(HIP_HOME, 'lib'))
+     elif device_type == "cuda":
+         if cross_target_platform == "windows":
+@@ -2640,7 +2647,10 @@ def _prepare_ldflags(extra_ldflags, with_cuda, with_sycl, verbose, is_standalone
+                 extra_ldflags.append(f'/LIBPATH:{_join_rocm_home("lib")}')
+                 extra_ldflags.append('amdhip64.lib')
+             else:
+-                extra_ldflags.append(f'-L{_join_rocm_home("lib")}')
++                # Same /usr/lib exclusion as library_paths().
++                rocm_lib = _join_rocm_home('lib')
++                if rocm_lib != '/usr/lib':
++                    extra_ldflags.append(f'-L{rocm_lib}')
+                 extra_ldflags.append('-lamdhip64')
+     if with_sycl:
+         if IS_WINDOWS:

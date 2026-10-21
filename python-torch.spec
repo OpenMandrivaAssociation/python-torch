@@ -16,7 +16,7 @@
 
 Name:		python-torch
 Version:	2.14.1
-Release:	2
+Release:	3
 Summary:	PyTorch machine learning framework
 License:	BSD-3-Clause
 Group:		Development/Python
@@ -43,6 +43,9 @@ Patch4:		pytorch-2.14.0-system-fmt.patch
 # Clang 23 raw_buffer_* builtins are unsigned; CK still uses int32xN.
 # Same class of fix as python-xformers 0001-ck-tile-clang23-rdna.patch.
 Patch5:		pytorch-2.14.0-ck-clang23.patch
+# FHS ROCM_HOME=/usr must not add -L/usr/lib. That directory's libc.so
+# linker script forces OUTPUT_FORMAT(elf32-i386) and rejects 64-bit objects.
+Patch6:		pytorch-2.14.1-skip-usr-lib.patch
 
 BuildRequires:	python
 # find_package(Python COMPONENTS Development.Module) — without
