@@ -1,4 +1,4 @@
-TheRock 10.0 (HIP 7.15) no longer ships roctracer's libroctx64. ROCTx
+TheRock 10.1 (HIP 7.16) no longer ships roctracer's libroctx64. ROCTx
 markers are optional (torch.cuda.nvtx / profiler ranges); compute
 does not need them. Search lib64 and rocprofiler-sdk-roctx as well,
 and stub the bindings when nothing is found.

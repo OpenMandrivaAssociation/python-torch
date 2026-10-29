@@ -1,7 +1,7 @@
 Use the distro fmt package instead of third_party/fmt.
-2.14 always add_subdirectory()'s the bundled copy; there is no
-USE_SYSTEM_FMT. System fmt 11.2 provides fmt::fmt-header-only,
-which is what Caffe2_DEPENDENCY_LIBS already links.
+2.15 still always add_subdirectory()'s the bundled copy; there is no
+USE_SYSTEM_FMT. System fmt provides fmt::fmt-header-only, which is
+what Caffe2_DEPENDENCY_LIBS already links.
 
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt

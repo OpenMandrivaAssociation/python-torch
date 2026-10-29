@@ -1,4 +1,5 @@
-Do not pass -L/usr/lib when building HIP extensions.
+Do not pass -L/usr/lib or -isystem /usr/include when building HIP
+extensions against an FHS ROCm prefix.
 
 ROCm's own prefix keeps libraries in $ROCM_HOME/lib. On an FHS install
 ROCM_HOME is /usr, so that path is the 32-bit multilib directory.
@@ -6,12 +7,30 @@ ROCM_HOME is /usr, so that path is the 32-bit multilib directory.
 ld.lld applies it and then rejects every 64-bit object. The 64-bit
 libraries are already on the default linker search path.
 
-HIP_HOME is $ROCM_HOME/hip (/usr/hip here), so the same guard has to
+The same prefix makes include_paths() emit -isystem /usr/include, which
+breaks libstdc++ #include_next of stdlib.h and math.h. The CUDA branch
+already skips /usr/include. HIP must too.
+
+HIP_HOME is $ROCM_HOME/hip (/usr/hip here), so the library guard has to
 cover ROCM_HOME itself. Skip both when the prefix is /usr.
 
 --- a/torch/utils/cpp_extension.py
 +++ b/torch/utils/cpp_extension.py
-@@ -1786,9 +1786,13 @@ def library_paths(device_type: str = "cpu", torch_include_dirs: bool = True, cr
+@@ -1799,7 +1799,12 @@ def include_paths(device_type: str = "cpu", torch_include_dirs=True) -> list[str
+         ])
+     if device_type == "cuda" and IS_HIP_EXTENSION:
+         paths.append(os.path.join(lib_include, 'THH'))
+-        paths.append(_join_rocm_home('include'))
++        # FHS ROCm lives in /usr. -isystem /usr/include breaks libstdc++
++        # #include_next <stdlib.h> and <math.h>. The CUDA branch already
++        # skips this; HIP must too.
++        rocm_include = _join_rocm_home('include')
++        if rocm_include != '/usr/include':
++            paths.append(rocm_include)
+     elif device_type == "cuda":
+         cuda_home_include = _join_cuda_home('include')
+         # if we have the Debian/Ubuntu packages for cuda, we get /usr as cuda home.
+@@ -1838,9 +1843,13 @@ def library_paths(device_type: str = "cpu", torch_include_dirs: bool = True, cr
          paths.extend([TORCH_LIB_PATH])
  
      if device_type == "cuda" and IS_HIP_EXTENSION:
