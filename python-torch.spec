@@ -166,8 +166,15 @@ python %{SOURCE1} .
 # MAX_JOBS is setup.py-era; 2.15's scikit-build-core aliases it
 # to CMAKE_BUILD_PARALLEL_LEVEL (setdefault: an explicit value
 # wins). Pin both so ninja does not use every core and OOM.
+# Four concurrent HIP compiles were SIGKILL'd on the 64G znver1
+# builder (c64-6, build 684099) while compiling ck_gemm.
+%ifarch znver1
+export MAX_JOBS=2
+export CMAKE_BUILD_PARALLEL_LEVEL=2
+%else
 export MAX_JOBS=4
 export CMAKE_BUILD_PARALLEL_LEVEL=4
+%endif
 # HIP offload-bundler temps for 10 arches overflow a 32G /tmp tmpfs
 # ("No space left on device"). Keep scratch on the build disk.
 export TMPDIR=%{_builddir}/.torch-tmp
